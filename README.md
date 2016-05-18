@@ -9,4 +9,4 @@ FilterWheelControl.cs - Launch file that loads add-in into LightField.
 
 All LightField methods and libraries are copyright protected by Princeton Instruments.  For information on LightField, see:  http://www.princetoninstruments.com/products/LightField
 
-For questions on this add-in, contact S. R. Moorhead at sean.moorhead@utexas.edu .
+For questions on this add-in, contact Sean Moorhead at sean[dot]moorhead[at]utexas[dot]edu .
