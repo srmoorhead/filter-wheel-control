@@ -1,5 +1,5 @@
 ﻿// Copyright (C) Josh Smith - January 2007
-﻿// Edit lines 401-420 by S. R. Moorhead for specific application to Filter Wheel Control project - May 2016
+﻿// Edit lines 388-390, 401-420 by S. R. Moorhead for specific application to Filter Wheel Control project - May 2016
 using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
