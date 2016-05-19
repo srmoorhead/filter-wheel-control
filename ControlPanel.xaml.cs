@@ -47,15 +47,16 @@ namespace FilterWheelControl.ControlPanelFunctions
         static string[] AVAILABLE_FILTERS = { "u", "g", "r", "i", "z", "BG40", "DARK" }; // Change this array if any filters get changed
         
         // LightField Variables
-        IExperiment EXPERIMENT;
-        ILightFieldApplication _APP;
+        volatile IExperiment EXPERIMENT;
+        volatile ILightFieldApplication _APP;
 
         // User-Input Filter Parameters
-        ObservableCollection<Filter> _FILTER_SETTINGS = new ObservableCollection<Filter>();
+        volatile ObservableCollection<Filter> _FILTER_SETTINGS = new ObservableCollection<Filter>();
         
         // Instance Variables for Run and Acquire Threads
         volatile bool _STOP;
         volatile bool _IS_RUNNING;
+        int MAIN_VIEW = 0; // the integer number representing the primary view frame in the Display window -- where all captured frames are initially displayed
 
         #endregion // Instance Variables
 
@@ -103,7 +104,12 @@ namespace FilterWheelControl.ControlPanelFunctions
         private void CCW_Click(object sender, RoutedEventArgs e)
         {
             if (this.ManualControl.IsChecked == true)
-                MessageBox.Show("This control is enabled");
+            {
+                if (EXPERIMENT.IsRunning)
+                    PleaseHaltCapturingMessage();
+                else
+                    ManualControlEnabledMessage();
+            }
             else
                 ManualControlDisabledMessage();
         }
@@ -113,8 +119,13 @@ namespace FilterWheelControl.ControlPanelFunctions
         /// </summary>
         private void CW_Click(object sender, RoutedEventArgs e)
         {
-            if (ManualControl.IsChecked == true)
-                MessageBox.Show("This control is enabled");
+            if (this.ManualControl.IsChecked == true)
+            {
+                if (EXPERIMENT.IsRunning)
+                    PleaseHaltCapturingMessage();
+                else
+                    ManualControlEnabledMessage();
+            }
             else
                 ManualControlDisabledMessage();
         }
@@ -125,9 +136,31 @@ namespace FilterWheelControl.ControlPanelFunctions
         private void JumpButton_Click(object sender, RoutedEventArgs e)
         {
             if (ManualControl.IsChecked == true)
-                MessageBox.Show("I cannot jump.  I am a computer.\n(This control is enabled).");
+            {
+                if (EXPERIMENT.IsRunning)
+                    PleaseHaltCapturingMessage();
+                else
+                    ManualControlEnabledMessage();
+            }
             else
                 ManualControlDisabledMessage();
+        }
+
+        /// <summary>
+        /// Displays a message letting the user know that the Manual Control functions are enabled.
+        /// For build purposes only.  Will be removed for final version when these buttons actually do something.
+        /// </summary>
+        private static void ManualControlEnabledMessage()
+        {
+            MessageBox.Show("This control is enabled");
+        }
+
+        /// <summary>
+        /// Displays an error message anytime LightField is capturing images and the user attempts to rotate the filter wheel.
+        /// </summary>
+        private static void PleaseHaltCapturingMessage()
+        {
+            MessageBox.Show("Please halt current frame capturing before attempting to rotate the filter wheel.");
         }
 
         /// <summary>
@@ -408,11 +441,8 @@ namespace FilterWheelControl.ControlPanelFunctions
             {
                 if (SystemReady())
                 {
-                    // Disable manual controls
+                    // Update UI to reflect running
                     this.ManualControl.IsHitTestVisible = false;
-
-                    // Change the button's color so the user knows this feature is activated
-                    this.AcquireOverride.ClearValue(Button.BackgroundProperty);
                     this.RunOverride.Background = Brushes.Green;
                     
                     // Begin running the preview_images thread until the user clicks Stop
@@ -439,7 +469,7 @@ namespace FilterWheelControl.ControlPanelFunctions
             string[] filters = runVars.Item3;
 
             // Capture Display functionality
-            IDisplayViewer view = _APP.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, 0);
+            IDisplayViewer view = _APP.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, MAIN_VIEW);
             IImageDataSet frame = null;
 
             // Read the CCD until Stop button pressed
@@ -459,9 +489,10 @@ namespace FilterWheelControl.ControlPanelFunctions
                 }
                 else
                 {
-                    // Something bad has happened.  Quit running.
+                    // LightField has attempted to initiate capturing via the regular Run or Acquire operations.
+                    // Concurrent capturing will cause LightField to crash.  Save the data and halt all acquisition.
                     HaltAcquisition();
-                    Dispatcher.BeginInvoke(new Action(ResetUI));
+                    
                     return;
                 }
 
@@ -469,7 +500,7 @@ namespace FilterWheelControl.ControlPanelFunctions
                 view.Display("Live Multi-Filter Data", frame);
 
                 // Update current_index
-                current_index = updateCurrentIndex(current_index, max_index);
+                current_index = current_index = current_index == max_index ? 0 : current_index + 1;
             }
             _IS_RUNNING = false;
         }
@@ -487,18 +518,13 @@ namespace FilterWheelControl.ControlPanelFunctions
             {
                 if (SystemReady())
                 {
-                    // Disable manual controls
+                    // Update UI to reflect acquiring
                     this.ManualControl.IsHitTestVisible = false;
-
-                    // Update button colors so the user knows which features are active
                     this.AcquireOverride.Background = Brushes.Green;
-                    this.RunOverride.ClearValue(Button.BackgroundProperty);
 
-                    // Begin acquiring images
+                    // Begin running the acquire_images thread until the user clicks stop
                     _IS_RUNNING = true;
                     _STOP = false;
-
-                    // Run the capture sequence until Stop button is pressed (and _STOP bool changed) or max number of frames reached
                     Thread acquisition = new Thread(acquire_images);
                     acquisition.Start();
                 }
@@ -531,10 +557,9 @@ namespace FilterWheelControl.ControlPanelFunctions
             int max_index = runVars.Item1;
             double[] exposure_times = runVars.Item2;
             string[] filters = runVars.Item3;
-            int THIS_FRAME = 0;
 
             // Capture Display functionality
-            IDisplayViewer view = _APP.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, 0);
+            IDisplayViewer view = _APP.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, MAIN_VIEW);
             IImageDataSet captured_frame = null;
 
             // Read the CCD and save images until Stop button pressed or Number of Frames reached
@@ -555,15 +580,15 @@ namespace FilterWheelControl.ControlPanelFunctions
                 }
                 else
                 {
-                    // Something bad has happened.  Save the data and quit acquisition.
+                    // LightField has attempted to initiate capturing via the regular Run or Acquire operations.
+                    // Concurrent capturing will cause LightField to crash.  Save the data and halt all acquisition.
                     filemgr.CloseFile(data);
                     HaltAcquisition();
-                    Dispatcher.BeginInvoke(new Action(ResetUI));
                     return;
                 }
 
                 // Save the data
-                separated = separateROIs(captured_frame, num_regions, THIS_FRAME);
+                separated = separateROIs(captured_frame, num_regions, 0); // 0 is for this frame (the just-captured frame)
                 to_be_saved = separateROIs(data, num_regions, current_frame);
                 for (int i = 0; i < num_regions; i++)
                     to_be_saved[i].SetData(separated[i].GetData());
@@ -572,7 +597,7 @@ namespace FilterWheelControl.ControlPanelFunctions
                 view.Display("Live Multi-Filter Data", captured_frame);
 
                 // Update current_index and current_frame
-                current_index = updateCurrentIndex(current_index, max_index);
+                current_index = current_index == max_index ? 0 : current_index + 1;
                 current_frame++;
             }
             filemgr.CloseFile(data);
@@ -627,7 +652,7 @@ namespace FilterWheelControl.ControlPanelFunctions
             }
             if (camera == null)
             {
-                MessageBox.Show("Camera not found.  Please ensure there is a camera attached to the system.");
+                MessageBox.Show("Camera not found.  Please ensure there is a camera attached to the system.\nIf the camera is attached, ensure you have loaded it into this experiment.");
                 return false;
             }
             return EXPERIMENT.IsReadyToRun && 
@@ -645,7 +670,8 @@ namespace FilterWheelControl.ControlPanelFunctions
             EXPERIMENT.Stop(); 
             _IS_RUNNING = false;
             _STOP = true;
-            MessageBox.Show("There has been an error.  Halting Acquisition.\nYour data has been saved.");
+            Dispatcher.BeginInvoke(new Action(ResetUI));
+            MessageBox.Show("LightField has attempted to initiate capturing via the regular Run and Acquire functions.\nConcurrent capturing will cause LightField to crash.\nHalting acquisition.  Your data has been saved.");
         }
 
         /// <summary>
@@ -687,22 +713,6 @@ namespace FilterWheelControl.ControlPanelFunctions
                 total_num_frames += _FILTER_SETTINGS[i].NumExposures;
             }
             return total_num_frames;
-        }
-
-        /// <summary>
-        /// Updates the current exposure time and filter array index.
-        /// Sets to zero if the current index is equal to the max index.
-        /// Increments by 1 otherwise.
-        /// </summary>
-        /// <param name="i">The current index.</param>
-        /// <param name="max">The maximum index in the array.</param>
-        /// <returns>0 if i == max, i+1 otherwise</returns>
-        private static int updateCurrentIndex(int i, int max)
-        {
-            if (i == max)
-                return 0;
-            else
-                return i + 1;
         }
 
         /// <summary>
