@@ -4,7 +4,6 @@ using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
-using PrincetonInstruments.LightField.AddIns;
 using System.Windows.Threading;
 
 namespace FilterWheelControl.ControlPanelFunctions
@@ -24,44 +23,25 @@ namespace FilterWheelControl.ControlPanelFunctions
 
         volatile bool _STOP;
         volatile bool _IS_RUNNING;
+        int CONCURRENT = 0; // int value representing the situation where concurrent capturing is halted
+        int SELECTED = 1; // int value representing the situation where the user chooses to halt acquisition
         int MAIN_VIEW = 0; // the integer number representing the primary view frame in the Display window -- where all captured frames are initially displayed
 
         #endregion // Instance Variables
 
         /// <summary>
-        /// Lets the program know the system is ready to capture images.
-        /// </summary>
-        /// <returns>bool true if system is ready, false otherwise</returns>
-        private bool SystemReady()
-        {
-            IDevice camera = null;
-            foreach (IDevice device in EXPERIMENT.ExperimentDevices)
-            {
-                if (device.Type == DeviceType.Camera)
-                    camera = device;
-            }
-            if (camera == null)
-            {
-                MessageBox.Show("Camera not found.  Please ensure there is a camera attached to the system.\nIf the camera is attached, ensure you have loaded it into this experiment.");
-                return false;
-            }
-            return EXPERIMENT.IsReadyToRun &&
-                EXPERIMENT != null &&
-                EXPERIMENT.Exists(CameraSettings.ShutterTimingExposureTime) &&
-                !_IS_RUNNING &&
-                !EXPERIMENT.IsRunning;
-        }
-
-        /// <summary>
         /// Displays an error message and changes the run booleans to reflect a stop in acquisition.
         /// </summary>
-        private void HaltAcquisition()
+        private void HaltAcquisition(int reason)
         {
             EXPERIMENT.Stop();
             _IS_RUNNING = false;
             _STOP = true;
             Dispatcher.BeginInvoke(new Action(ResetUI));
-            MessageBox.Show("LightField has attempted to initiate capturing via the regular Run and Acquire functions.\nConcurrent capturing will cause LightField to crash.\nHalting image capturing.  Your data has been saved.");
+            if(reason == CONCURRENT)
+                MessageBox.Show("LightField has attempted to initiate capturing via the regular Run and Acquire functions.\nConcurrent capturing will cause LightField to crash.\nHalting acquisition.  Your data has been saved.");
+            if (reason == SELECTED)
+                MessageBox.Show("Acqusition has been halted.");
         }
 
         /// <summary>

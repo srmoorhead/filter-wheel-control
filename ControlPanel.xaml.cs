@@ -66,5 +66,6 @@ namespace FilterWheelControl.ControlPanelFunctions
         }
 
         #endregion // Initialize Control Panel
+
     }
 }

@@ -15,7 +15,9 @@ namespace FilterWheelControl.ControlPanelFunctions
         ///
         /// The acquire_images thread
         /// 
-        /// Any methods to interact with the main Control Panel thread must invoke the dispatcher
+        /// Any methods to interact with the main Control Panel thread must invoke the dispatcher.
+        /// This thread interacts with methods in the RunAcquireSupport.cs file.
+        /// All other method calls are invoked through the dispatcher.
         ///
         ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -52,7 +54,7 @@ namespace FilterWheelControl.ControlPanelFunctions
                 MessageBoxResult okayToContinue = MessageBox.Show("With the given settings, you will not complete an entire sequence of filters.  Is this okay?", "Warning", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (okayToContinue == MessageBoxResult.No)
                 {
-                    HaltAcquisition();
+                    HaltAcquisition(SELECTED);
                     return;
                 }
             }
@@ -82,7 +84,7 @@ namespace FilterWheelControl.ControlPanelFunctions
                     // LightField has attempted to initiate capturing via the regular Run or Acquire operations.
                     // Concurrent capturing will cause LightField to crash.  Save the data and halt all acquisition.
                     filemgr.CloseFile(data);
-                    HaltAcquisition();
+                    HaltAcquisition(CONCURRENT);
                     return;
                 }
 
