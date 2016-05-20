@@ -14,7 +14,9 @@ namespace FilterWheelControl.ControlPanelFunctions
         ///
         /// The preview_images thread
         /// 
-        /// Any methods to interact with the main Control Panel thread must invoke the dispatcher
+        /// Any methods to interact with the main Control Panel thread must invoke the dispatcher.
+        /// This thread interacts with methods in the RunAcquireSupport.cs file.
+        /// All other method calls are invoked through the dispatcher.
         ///
         ///////////////////////////////////////////////////////////////////////////////////////////
         
@@ -53,7 +55,7 @@ namespace FilterWheelControl.ControlPanelFunctions
                 {
                     // LightField has attempted to initiate capturing via the regular Run or Acquire operations.
                     // Concurrent capturing will cause LightField to crash.  Save the data and halt all acquisition.
-                    HaltAcquisition();
+                    HaltAcquisition(CONCURRENT);
 
                     return;
                 }

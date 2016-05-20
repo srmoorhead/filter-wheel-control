@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Threading;
+using PrincetonInstruments.LightField.AddIns;
 
 namespace FilterWheelControl.ControlPanelFunctions
 {
@@ -63,6 +64,62 @@ namespace FilterWheelControl.ControlPanelFunctions
             }
             else
                 AutomatedControlDisabledMessage();
+        }
+
+        /// <summary>
+        /// Lets the program know the system is ready to capture images.
+        /// </summary>
+        /// <returns>bool true if system is ready, false otherwise</returns>
+        private bool SystemReady()
+        {
+            // Check that a camera is attached
+            IDevice camera = null;
+            foreach (IDevice device in EXPERIMENT.ExperimentDevices)
+            {
+                if (device.Type == DeviceType.Camera)
+                    camera = device;
+            }
+            if (camera == null)
+            {
+                MessageBox.Show("Camera not found.  Please ensure there is a camera attached to the system.\nIf the camera is attached, ensure you have loaded it into this experiment.");
+                return false;
+            }
+
+            // Check that our camera can handle varying exposure times
+            if(!EXPERIMENT.Exists(CameraSettings.ShutterTimingExposureTime))
+            {
+                MessageBox.Show("This camera does not support multiple exposure times.  Please ensure you are using the correct camera.");
+                return false;
+            }
+            
+            // Check that the user has saved the experiment
+            if (EXPERIMENT == null)
+            {
+                MessageBox.Show("You must save the LightField experiment before beginning acquisition.");
+            }
+
+            // Check that LightField is ready to run
+            if (!EXPERIMENT.IsReadyToRun)
+            {
+                MessageBox.Show("LightField is not ready to begin acquisition.  Please ensure all required settings have been set and there are no ongoing processes, then try again.");
+                return false;
+            }
+
+            // Check that no acquisition is currently occuring
+            if (_IS_RUNNING || EXPERIMENT.IsRunning)
+            {
+                MessageBox.Show("LightField is currently acquiring images.  Please halt image capturing before attempting to begin a new capture session.");
+                return false;
+            }
+
+            // Check that the user has entered some filter settings
+            if (_FILTER_SETTINGS.Count == 0)
+            {
+                MessageBox.Show("To operate in multi-filter mode, you must specify some filter settings.\nIf you wish to operate manually, please use the Run and Acquire buttons at the top of the LightField window.");
+                return false;
+            }
+
+            return true;
         }
 
         /// <summary>
