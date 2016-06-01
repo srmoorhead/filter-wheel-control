@@ -11,7 +11,7 @@ using PrincetonInstruments.LightField.AddIns;
 namespace FilterWheelControl
 {
     [AddIn("Filter Wheel Control",
-            Version = "0.1.0",
+            Version = "0.2.0",
             Publisher = "University of Texas Dept. of Astronomy - S. R. Moorhead",
             Description = "Allows the observer to manipulate parameters relating to the control of a filter wheel.")]
     

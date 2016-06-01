@@ -105,7 +105,7 @@ namespace FilterWheelControl.ImageCapturing
                     view.Display("Live Multi-Filter Data", frame);
                 }
             }
-            _IS_RUNNING = false;
+            wrapUp(arguments.Item2);
         }
 
         /// <summary>
@@ -213,9 +213,7 @@ namespace FilterWheelControl.ImageCapturing
                     view.Display("Live Multi-Filter Data", frame);
                 }
             }
-
-            _IS_RUNNING = false;
-
+            wrapUp(arguments.Item2);
         }
 
         /// <summary>
@@ -230,6 +228,17 @@ namespace FilterWheelControl.ImageCapturing
                 MessageBox.Show("LightField has attempted to initiate capturing via the regular Run and Acquire functions.  Concurrent capturing will cause LightField to crash.\n\nHalting acquisition.  If you were acquiring, your data has been saved.");
             if (reason == SELECTED || reason == EXPORT)
                 MessageBox.Show("Acqusition has been halted.");
+        }
+
+        /// <summary>
+        /// Wraps up the capturing.  Resets bool vals and the UI.
+        /// </summary>
+        private static void wrapUp(ControlPanel panel)
+        {
+            _IS_RUNNING = false;
+            _STOP = true;
+            Application.Current.Dispatcher.BeginInvoke(new Action(panel.ResetUI));
+            MessageBox.Show("Acquisition Complete!");
         }
 
     }
