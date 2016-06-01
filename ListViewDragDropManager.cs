@@ -13,7 +13,7 @@ using System.Windows.Input;
 using WPF.JoshSmith.Adorners;
 using WPF.JoshSmith.Controls.Utilities;
 
-using FilterWheelControl.ControlPanelFunctions;
+using FilterWheelControl.SettingsList;
 
 namespace WPF.JoshSmith.ServiceProviders.UI
 {
