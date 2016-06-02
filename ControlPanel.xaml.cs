@@ -37,6 +37,7 @@ namespace FilterWheelControl.ControlPanelFunctions
         private static string[] AVAILABLE_FILTERS = { "u", "g", "r", "i", "z", "BG40", "DARK" }; // Change this array if any filters get changed
         private static string InputTimeTextbox_DEFAULT_TEXT = "Exposure Time (s)"; // Change this string if you wish to change the text in the InputTime textbox
         private static string NumFramesTextbox_DEFAULT_TEXT = "Num"; // Change this string if you wish to change the text in the NumFrames textbox
+        public static readonly int FLASH_INTERVAL = 500; // Half the period of Stop button flashing
         
         // LightField Variables
         public static IExperiment EXPERIMENT;
@@ -222,12 +223,15 @@ namespace FilterWheelControl.ControlPanelFunctions
         /// </summary>
         private void EditMenuItem_Click(object sender, RoutedEventArgs e)
         {
-            this.AddButton.Content = "Save";
-            this.AddFilterLabel.Content = "Edit Filter:";
+            if (this.CurrentSettings.SelectedItem != null)
+            {
+                this.AddButton.Content = "Save";
+                this.AddFilterLabel.Content = "Edit Filter:";
 
-            this.InputTime.Text = Convert.ToString(((Filter)this.CurrentSettings.SelectedItem).ExposureTime);
-            this.FilterSelectionBox.SelectedItem = ((Filter)this.CurrentSettings.SelectedItem).FilterType;
-            this.NumFrames.Text = Convert.ToString(((Filter)this.CurrentSettings.SelectedItem).NumExposures);
+                this.InputTime.Text = Convert.ToString(((Filter)this.CurrentSettings.SelectedItem).ExposureTime);
+                this.FilterSelectionBox.SelectedItem = ((Filter)this.CurrentSettings.SelectedItem).FilterType;
+                this.NumFrames.Text = Convert.ToString(((Filter)this.CurrentSettings.SelectedItem).NumExposures);
+            }
         }
 
         #endregion // Edit Items
@@ -255,7 +259,7 @@ namespace FilterWheelControl.ControlPanelFunctions
                 {
                     // Update UI to reflect running
                     this.ManualControl.IsHitTestVisible = false;
-                    this.RunOverride.Background = Brushes.Green;
+                    setRunGreen();
 
                     // Create object to pass this and _APP
                     Tuple<ILightFieldApplication, ControlPanel> args = new Tuple<ILightFieldApplication, ControlPanel>(_APP, this);
@@ -280,7 +284,7 @@ namespace FilterWheelControl.ControlPanelFunctions
                 {
                     // Update UI to reflect running
                     this.ManualControl.IsHitTestVisible = false;
-                    this.AcquireOverride.Background = Brushes.Green;
+                    setAcquireGreen();
 
                     // Create object to pass this and _APP
                     Tuple<ILightFieldApplication, ControlPanel> args = new Tuple<ILightFieldApplication, ControlPanel>(_APP, this);
@@ -294,7 +298,45 @@ namespace FilterWheelControl.ControlPanelFunctions
                 AutomatedControlDisabledMessage();
         }
 
+        #region Run and Acquire Color Changes
+
+        /// <summary>
+        /// Sets the background of the Run button to Green
+        /// </summary>
+        public void setRunGreen()
+        {
+            RunOverride.Background = Brushes.Green;
+        }
+
+        /// <summary>
+        /// Sets the background of the Run button to Clear
+        /// </summary>
+        public void setRunClear()
+        {
+            RunOverride.ClearValue(Button.BackgroundProperty);
+        }
+
+        /// <summary>
+        /// Sets the background of the Acquire button to Green
+        /// </summary>
+        public void setAcquireGreen()
+        {
+            AcquireOverride.Background = Brushes.Green;
+        }
+
+        /// <summary>
+        /// Sets the background of the Acquire button to Clear
+        /// </summary>
+        public void setAcquireClear()
+        {
+            AcquireOverride.ClearValue(Button.BackgroundProperty);
+        }
+
+        #endregion // Run and Acquire Color Changes
+
         #endregion // Run and Acquire
+
+        #region System Ready Checks
 
         /// <summary>
         /// Lets the program know the system is ready to capture images.
@@ -336,7 +378,7 @@ namespace FilterWheelControl.ControlPanelFunctions
             }
 
             // Check that no acquisition is currently occuring
-            if (Capturing._IS_RUNNING || EXPERIMENT.IsRunning)
+            if (EXPERIMENT.IsRunning)
             {
                 MessageBox.Show("LightField is currently acquiring images.  Please halt image capturing before attempting to begin a new capture session.");
                 return false;
@@ -352,6 +394,10 @@ namespace FilterWheelControl.ControlPanelFunctions
             return true;
         }
 
+        #endregion // System Ready Checks
+
+        #region Error Message
+
         /// <summary>
         /// Displays an error message anytime an automated control button is pressed, but automated control is not activated.
         /// </summary>
@@ -359,6 +405,10 @@ namespace FilterWheelControl.ControlPanelFunctions
         {
             MessageBox.Show("This control is disabled.  Please enable Automated Control.");
         }
+
+        #endregion // Error Message
+
+        #region Stop
 
         /// <summary>
         /// Runs when the "Stop" button is clicked
@@ -372,10 +422,43 @@ namespace FilterWheelControl.ControlPanelFunctions
 
                 Capturing._STOP = true;
                 EXPERIMENT.Stop();
-                ResetUI();
+                Thread flashStopButton = new Thread(flashStop);
+                flashStopButton.Start(FLASH_INTERVAL);
             }
             else
                 AutomatedControlDisabledMessage();
+        }
+
+        /// <summary>
+        /// Flashes the StopOverride button between Red and Clear at interval set by 
+        /// </summary>
+        /// <param name="t">An int object holding half the period of the button flash.</param>
+        private void flashStop(object t)
+        {
+            int flash_time = (int)t;
+            while (Capturing._IS_RUNNING == true || Capturing._IS_ACQUIRING == true)
+            {
+                Application.Current.Dispatcher.Invoke(new Action(setStopRed));
+                Thread.Sleep(flash_time);
+                Application.Current.Dispatcher.Invoke(new Action(setStopClear));
+                Thread.Sleep(flash_time);
+            }
+        }
+
+        /// <summary>
+        /// Sets the background of the StopOverride button to Red
+        /// </summary>
+        private void setStopRed()
+        {
+            StopOverride.Background = Brushes.Red;
+        }
+
+        /// <summary>
+        /// Sets the background of the StopOverride button to clear
+        /// </summary>
+        private void setStopClear()
+        {
+            StopOverride.ClearValue(Button.BackgroundProperty);
         }
         
         /// <summary>
@@ -387,19 +470,21 @@ namespace FilterWheelControl.ControlPanelFunctions
             ManualControl.IsHitTestVisible = true;
 
             // Update button colors to the user knows which features are active
-            AcquireOverride.ClearValue(Button.BackgroundProperty);
-            RunOverride.ClearValue(Button.BackgroundProperty);
+            setAcquireClear();
+            setRunClear();
         }
 
+        #endregion // Stop
+
         #endregion // Override Buttons
+
+        #region Manual Control Buttons
 
         /////////////////////////////////////////////////////////////////
         ///
         /// Methods for Manual Control Buttons (Rotate CW, Rotate CCW, Jump)
         ///
         /////////////////////////////////////////////////////////////////
-
-        #region Manual Control Buttons
 
         /// <summary>
         /// Sends a signal to the filter wheel to rotate the wheel counterclockwise (w.r.t. the camera)
@@ -449,8 +534,6 @@ namespace FilterWheelControl.ControlPanelFunctions
                 ManualControlDisabledMessage();
         }
 
-        #endregion // Manual Control Buttons
-
         #region Manual Control Messages
 
         /// <summary>
@@ -479,6 +562,8 @@ namespace FilterWheelControl.ControlPanelFunctions
         }
 
         #endregion //Manual Control Messages
+
+        #endregion // Manual Control Buttons
 
     }
 }
