@@ -19,8 +19,9 @@ namespace FilterWheelControl.ImageCapturing
     {
         #region Instance Variables
 
-        public static volatile bool _STOP;
-        public static volatile bool _IS_RUNNING;
+        public static volatile bool _STOP = true;
+        public static volatile bool _IS_RUNNING = false;
+        public static volatile bool _IS_ACQUIRING = false;
         
         private static int MAIN_VIEW = 0; // the primary view in which captured images are displayed
         private static int CONCURRENT = 0; // denotes the case in which concurrent capturing halts acquisition
@@ -29,6 +30,8 @@ namespace FilterWheelControl.ImageCapturing
 
         #endregion // Instance Variables
 
+        #region Run
+
         /// <summary>
         /// Overrides the Run button in Automated Multi-Filter mode.
         /// Displays captured images in the main view of the Display window.
@@ -36,6 +39,17 @@ namespace FilterWheelControl.ImageCapturing
         /// <param name="args">A tuple containig the ILightFieldApplication app and the ControlPanel instance currently running.  Caution:  No check is made before casting!</param>
         public static void Run(object args)
         {
+            // Make sure we aren't already running
+            if (_IS_RUNNING)
+                return;
+
+            // Read in the args
+            Tuple<ILightFieldApplication, ControlPanel> arguments = (Tuple<ILightFieldApplication, ControlPanel>)args;
+
+            // Transition to Run if we are currently Acquiring
+            if (_IS_ACQUIRING)
+                transitionToRun(arguments.Item2);
+            
             // Reflect that the system is running
             _STOP = false;
             _IS_RUNNING = true;
@@ -46,18 +60,13 @@ namespace FilterWheelControl.ImageCapturing
             double[] exposure_times = runVars.Item2;
             string[] filters = runVars.Item3;
 
-            // Read in the args
-            Tuple<ILightFieldApplication, ControlPanel> arguments = (Tuple<ILightFieldApplication, ControlPanel>)args;
-
-            // Set up first exposure
-            IExperiment exp = arguments.Item1.Experiment;
-            int current_index = 0;
-
             // Start rotating the filter wheel to the first position
             Thread rotate = new Thread(WheelInteraction.RotateWheelToFilter);
+            int current_index = 0; // the first filter in the sequence
             rotate.Start(filters[current_index]);
 
             // Set the exposure value to the first val and capture display fuctionality
+            IExperiment exp = arguments.Item1.Experiment;
             exp.SetValue(CameraSettings.ShutterTimingExposureTime, exposure_times[current_index]);
             IDisplayViewer view = (arguments.Item1.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, MAIN_VIEW));
 
@@ -108,19 +117,32 @@ namespace FilterWheelControl.ImageCapturing
             wrapUp(arguments.Item2);
         }
 
+        #endregion // Run
+
+        #region Acquire
+
         /// <summary>
-        /// 
+        /// Overrides the Acquire Button in Automated Multi-Filter Mode.
+        /// Displays captured images in the main view of the Display window.
+        /// Saves captured images as fits files, separated by frame and ROI.
         /// </summary>
-        /// <param name="args"></param>
+        /// <param name="args">A Tuple containing Item 1: the LightField Application object and Item 2: The ControlPanel object</param>
         public static void Acquire(object args)
         {
-            // Reflect that the system is running
-            _STOP = false;
-            _IS_RUNNING = true;
+            // Make sure we aren't already Acquiring
+            if (_IS_ACQUIRING)
+                return;
 
             // Read in the args
             Tuple<ILightFieldApplication, ControlPanel> arguments = (Tuple<ILightFieldApplication, ControlPanel>)args;
-            IExperiment exp = arguments.Item1.Experiment;
+
+            // Transition to Acquire if we are currently Running
+            if (_IS_RUNNING)
+                transitionToAcquire(arguments.Item2);
+            
+            // Reflect that the system is running
+            _STOP = false;
+            _IS_ACQUIRING = true;
 
             // Gather run variables
             Tuple<int, double[], string[]> runVars = CurrentSettingsList.getRunVars();
@@ -129,6 +151,7 @@ namespace FilterWheelControl.ImageCapturing
             string[] filters = runVars.Item3;
 
             // Check that the user will complete a full filter sequence
+            IExperiment exp = arguments.Item1.Experiment;
             int frames_to_store = Convert.ToInt32(exp.GetValue(ExperimentSettings.AcquisitionFramesToStore));
             if (max_index + 1 > frames_to_store)
             {
@@ -216,12 +239,67 @@ namespace FilterWheelControl.ImageCapturing
             wrapUp(arguments.Item2);
         }
 
+        #endregion // Acquire
+
+        #region Transitions
+
+        /// <summary>
+        /// Stops current Acquisition, flashes the Run button until Run can commence.
+        /// Set the UI to reflect Running
+        /// </summary>
+        /// <param name="p">The current ControlPanel object</param>
+        private static void transitionToRun(ControlPanel p)
+        {
+            _STOP = true;
+            
+            // Flash the Run button until Acquiring is halted
+            while (_IS_ACQUIRING)
+            {
+                Application.Current.Dispatcher.Invoke(new Action(p.setRunGreen));
+                Thread.Sleep(ControlPanel.FLASH_INTERVAL);
+                Application.Current.Dispatcher.Invoke(new Action(p.setRunClear));
+                Thread.Sleep(ControlPanel.FLASH_INTERVAL);
+            }
+
+            // Set the run button to Green and the Acquire button to Clear to reflect Running
+            Application.Current.Dispatcher.Invoke(new Action(p.setRunGreen));
+            Application.Current.Dispatcher.Invoke(new Action(p.setAcquireClear));
+        }
+
+        /// <summary>
+        /// Stops current Running, flashes the Acquire button until Acquisition can commence.
+        /// Set the UI to reflect Acquiring
+        /// </summary>
+        /// <param name="p">The current ControlPanel object</param>
+        private static void transitionToAcquire(ControlPanel p)
+        {
+            _STOP = true;
+
+            // Flash the Acquire button until Running is halted
+            while (_IS_RUNNING)
+            {
+                Application.Current.Dispatcher.Invoke(new Action(p.setAcquireGreen));
+                Thread.Sleep(ControlPanel.FLASH_INTERVAL);
+                Application.Current.Dispatcher.Invoke(new Action(p.setAcquireClear));
+                Thread.Sleep(ControlPanel.FLASH_INTERVAL);
+            }
+
+            // Set the Acquire button to Green and the Run button to Clear to reflect Acquiring
+            Application.Current.Dispatcher.Invoke(new Action(p.setAcquireGreen));
+            Application.Current.Dispatcher.Invoke(new Action(p.setRunClear));
+        }
+
+        #endregion // Transitions
+
+        #region Halting and Wrap Up
+
         /// <summary>
         /// Displays an error message and changes the run booleans to reflect a stop in acquisition.
         /// </summary>
         private static void HaltAcquisition(ControlPanel panel, int reason)
         {
             _IS_RUNNING = false;
+            _IS_ACQUIRING = false;
             _STOP = true;
             Application.Current.Dispatcher.BeginInvoke(new Action(panel.ResetUI));
             if (reason == CONCURRENT)
@@ -236,10 +314,11 @@ namespace FilterWheelControl.ImageCapturing
         private static void wrapUp(ControlPanel panel)
         {
             _IS_RUNNING = false;
-            _STOP = true;
+            _IS_ACQUIRING = false;
             Application.Current.Dispatcher.BeginInvoke(new Action(panel.ResetUI));
-            MessageBox.Show("Acquisition Complete!");
         }
+
+        #endregion // Halting and Wrap Up
 
     }
 }
