@@ -26,7 +26,8 @@ namespace FilterWheelControl.FileFunctions
 
             // Ensure the output file name doesn't conflict with an existing file
             string[] nameInfo = retrieveFileNameInfo(exp);
-            string exportLoc = nameInfo[DIRECTORY] + "\\" + nameInfo[FILENAME] + "-Frame-" + fnum + ".fits";
+            string baseFile = nameInfo[DIRECTORY] + "\\" + nameInfo[FILENAME] + "-Frame-" + fnum;
+            string exportLoc =  baseFile + ".fits";
             if (File.Exists(exportLoc))
             {
                 MessageBox.Show("With the given file name settings, you will be overwriting existing data.\nPlease change the directory or filename, or delete the existing files, and try again.\n\nThe current export location is: " + exportLoc, "Export Error - Pre-Existing File");
@@ -38,7 +39,7 @@ namespace FilterWheelControl.FileFunctions
             ImageDataFormat format = (ImageDataFormat)exp.GetValue(CameraSettings.AcquisitionPixelFormat);
             RegionOfInterest[] regions = exp.SelectedRegions;
 
-            string tempFileName = nameInfo[DIRECTORY] + "\\" + nameInfo[FILENAME] + "_" + fnum + ".spe";
+            string tempFileName = baseFile + ".spe";
             buildTempFile(format, regions, frame, tempFileName, filemgr);
             
             // Build export settings object
