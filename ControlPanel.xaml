@@ -7,7 +7,7 @@
             <Label Content="Current Filter Settings" HorizontalAlignment="Left" Margin="62,0,0,0" VerticalAlignment="Top" Width="126"/>
             <ListView x:Name="CurrentSettings" HorizontalAlignment="Left" Height="320" VerticalAlignment="Top" Width="250" UseLayoutRounding="False"
                       ItemsSource="{Binding RelativeSource={RelativeSource Mode=FindAncestor, AncestorType={x:Type UserControl}},Path=FilterSettings}"
-                      KeyDown="CurrentSettings_KeyDown">
+                      KeyDown="CurrentSettings_KeyDown" MouseDoubleClick="CurrentSettings_MouseDoubleClick">
                 <ListView.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="Edit" Click="EditMenuItem_Click"/>

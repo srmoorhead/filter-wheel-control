@@ -140,6 +140,8 @@ namespace FilterWheelControl.ControlPanelFunctions
                 this.CurrentSettings.Items.Refresh();
 
                 // Reset UI to initial settings
+                AddButton.ClearValue(Button.BackgroundProperty);
+                AddButton.ClearValue(Button.ForegroundProperty);
                 this.AddButton.Content = "Add";
                 this.AddFilterLabel.Content = "Add Filter:";
             }
@@ -219,9 +221,24 @@ namespace FilterWheelControl.ControlPanelFunctions
 
         /// <summary>
         /// Runs when the Edit menu item is selected in the R-Click menu on the CurrentSettings list
-        /// Updates the Add Filter settings to allow editing of the R-Clicked filter
         /// </summary>
         private void EditMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            EditSetUp();
+        }
+
+        /// <summary>
+        /// Runs when a Current Settings List item is double clicked
+        /// </summary>
+        private void CurrentSettings_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            EditSetUp();
+        }
+
+        /// <summary>
+        /// Sets up the UI to handle an Edit as selected from the CurrentSettings list R-Click menu or double-click
+        /// </summary>
+        private void EditSetUp()
         {
             if (this.CurrentSettings.SelectedItem != null)
             {
@@ -231,6 +248,8 @@ namespace FilterWheelControl.ControlPanelFunctions
                 this.InputTime.Text = Convert.ToString(((Filter)this.CurrentSettings.SelectedItem).ExposureTime);
                 this.FilterSelectionBox.SelectedItem = ((Filter)this.CurrentSettings.SelectedItem).FilterType;
                 this.NumFrames.Text = Convert.ToString(((Filter)this.CurrentSettings.SelectedItem).NumExposures);
+                AddButton.Background = Brushes.Blue;
+                AddButton.Foreground = Brushes.White;
             }
         }
 
@@ -380,7 +399,7 @@ namespace FilterWheelControl.ControlPanelFunctions
             // Check that no acquisition is currently occuring
             if (EXPERIMENT.IsRunning)
             {
-                MessageBox.Show("LightField is currently acquiring images.  Please halt image capturing before attempting to begin a new capture session.");
+                MessageBox.Show("LightField is currently capturing images.  Please halt image capturing before attempting to begin a new capture session.");
                 return false;
             }
 
