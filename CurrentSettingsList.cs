@@ -10,7 +10,9 @@ namespace FilterWheelControl.SettingsList
     public class Filter
     {
         public string FilterType { get; set; }
-        public double ExposureTime { get; set; }
+        public double DisplayTime { get; set; }
+        public double UserInputTime { get; set; }
+        public double SlewAdjustedTime { get; set; }
         public int NumExposures { get; set; }
         public int OrderLocation { get; set; }
     }
@@ -21,6 +23,8 @@ namespace FilterWheelControl.SettingsList
 
         private static volatile ObservableCollection<Filter> _FILTER_SETTINGS = new ObservableCollection<Filter>();
         private static readonly object CURRENT_SETTINGS_LOCK = new object();
+
+        private static double TRIGGER_SLEW_CORRECTION = 0.002; // seconds
 
         #endregion // Instance Variables
 
@@ -35,11 +39,26 @@ namespace FilterWheelControl.SettingsList
         /// <param name="filterType">The string holding the type of filter</param>
         /// <param name="time">A string holding the time, in seconds, of the exposure duration</param>
         /// <param name="frames">A string holding the number of consecutive frames of this exposure time and filter to take</param>
+        /// <param name="slewAdjust">True if the times should be adjusted to account for trigger timing slew, false otherwise</param>
         /// <returns>true if the object was added, false otherwise</returns>
-        public static bool Add(object filterType, string time, string frames)
+        public static bool Add(object filterType, string time, string frames, bool slewAdjust)
         {
-            // Validate inputs
-            if (ValidInputTime(time) && ValidNumFrames(frames) && ValidFilter(filterType))
+            // Calculate slew adjusted time if necessary
+            double inputTime;
+            double slewTime;
+            if (ValidInputTime(time))
+            {
+                inputTime = Convert.ToDouble(time);
+                if ((inputTime % 1 == 0) && (inputTime > 0))
+                    slewTime = inputTime - TRIGGER_SLEW_CORRECTION;
+                else
+                    slewTime = inputTime;
+            }
+            else
+                return false;
+            
+            // Validate other inputs and add filter
+            if (ValidNumFrames(frames) && ValidFilter(filterType))
             {
                 lock (CURRENT_SETTINGS_LOCK)
                 {
@@ -47,7 +66,9 @@ namespace FilterWheelControl.SettingsList
                     _FILTER_SETTINGS.Add(new Filter
                     {
                         FilterType = filterType.ToString(),
-                        ExposureTime = Convert.ToDouble(time),
+                        DisplayTime = slewAdjust ? slewTime : inputTime,
+                        UserInputTime = inputTime,
+                        SlewAdjustedTime = slewTime,
                         NumExposures = Convert.ToInt16(frames),
                         OrderLocation = newIndex
                     });
@@ -65,15 +86,33 @@ namespace FilterWheelControl.SettingsList
         /// <param name="filterType">The new type of the filter</param>
         /// <param name="time">The new exposure time for the filter (in seconds)</param>
         /// <param name="frames">The new number of frames to consecutively capture with these settings</param>
+        /// <param name="slewAdjust">True if the times should be adjusted to account for trigger timing slew, false otherwise</param>
         /// <returns>true if the edit occurred, false otherwise</returns>
-        public static bool Edit(Filter toBeChanged, object filterType, string time, string frames)
+        public static bool Edit(Filter toBeChanged, object filterType, string time, string frames, bool slewAdjust)
         {
-            if (ValidInputTime(time) && ValidNumFrames(frames) && ValidFilter(filterType))
+            // Calculate slew adjusted time, if necessary
+            double inputTime;
+            double slewTime;
+            if (ValidInputTime(time))
+            {
+                inputTime = Convert.ToDouble(time);
+                if ((inputTime % 1 == 0) && (inputTime > 0))
+                    slewTime = inputTime - TRIGGER_SLEW_CORRECTION;
+                else
+                    slewTime = inputTime;
+            }
+            else
+                return false;
+            
+            // Validate other inputs and edit filter
+            if (ValidNumFrames(frames) && ValidFilter(filterType))
             {
                 lock (CURRENT_SETTINGS_LOCK)
                 {
                     toBeChanged.FilterType = filterType.ToString();
-                    toBeChanged.ExposureTime = Convert.ToDouble(time);
+                    toBeChanged.DisplayTime = slewAdjust ? slewTime : inputTime;
+                    toBeChanged.UserInputTime = inputTime;
+                    toBeChanged.SlewAdjustedTime = slewTime;
                     toBeChanged.NumExposures = Convert.ToInt16(frames);
                 }
 
@@ -221,7 +260,7 @@ namespace FilterWheelControl.SettingsList
                 {
                     for (int exposure = 0; exposure < _FILTER_SETTINGS[frame].NumExposures; exposure++)
                     {
-                        exposure_times[index] = _FILTER_SETTINGS[frame].ExposureTime * 1000.0; // Convert from s to ms
+                        exposure_times[index] = _FILTER_SETTINGS[frame].UserInputTime * 1000.0; // Convert from s to ms
                         filter_types[index] = _FILTER_SETTINGS[frame].FilterType;
                         index++;
                     }
@@ -247,5 +286,27 @@ namespace FilterWheelControl.SettingsList
         }
 
         #endregion // Generate Runtime Variables
+
+        #region Generate File Content
+
+        /// <summary>
+        /// Build the file contents of a filter settings file
+        /// </summary>
+        /// <returns>A string holding the contents of the file</returns>
+        public static string GenerateFileContent()
+        {
+            string content = "";
+            lock (CURRENT_SETTINGS_LOCK)
+            {
+                foreach (Filter f in FilterSettings)
+                {
+                    content += f.FilterType + '\t' + f.UserInputTime + '\t' + f.NumExposures + "\r\n";
+                }
+            }
+
+            return content;
+        }
+
+        #endregion // Generate File Content
     }
 }
