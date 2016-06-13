@@ -38,6 +38,7 @@ namespace FilterWheelControl.ControlPanelFunctions
         private static string InputTimeTextbox_DEFAULT_TEXT = "Exposure Time (s)"; // Change this string if you wish to change the text in the InputTime textbox
         private static string NumFramesTextbox_DEFAULT_TEXT = "Num"; // Change this string if you wish to change the text in the NumFrames textbox
         public static readonly int FLASH_INTERVAL = 500; // Half the period of Stop button flashing
+        private static bool DELETE_ALLOWED = true;
         
         // LightField Variables
         public static IExperiment EXPERIMENT;
@@ -74,14 +75,14 @@ namespace FilterWheelControl.ControlPanelFunctions
 
         #region Current Settings
 
+        public static ObservableCollection<Filter> FilterSettings
+        { get { return CurrentSettingsList.FilterSettings; } }
+
         /////////////////////////////////////////////////////////////////
         ///
         /// Methods for Populating and Editing the Current Settings List
         ///
         /////////////////////////////////////////////////////////////////
-
-        public ObservableCollection<Filter> FilterSettings
-        { get { return CurrentSettingsList.FilterSettings; } }
 
         #region Add
 
@@ -126,14 +127,14 @@ namespace FilterWheelControl.ControlPanelFunctions
             if (this.AddButton.Content.ToString() == "Add")
             {
                 // If Add doesn't doesn't work, return and let the user change values
-                if (!CurrentSettingsList.Add(this.FilterSelectionBox.SelectionBoxItem, this.InputTime.Text, this.NumFrames.Text))
+                if (!CurrentSettingsList.Add(this.FilterSelectionBox.SelectionBoxItem, this.InputTime.Text, this.NumFrames.Text, (bool)TriggerSlewAdjust.IsChecked))
                     return;
             }
             // Otherwise we are editing:
             else
             {
                 // Try to edit.  If edit doesn't work, return and let the user change values
-                if (!CurrentSettingsList.Edit((Filter)this.CurrentSettings.SelectedItem, this.FilterSelectionBox.SelectionBoxItem, this.InputTime.Text, this.NumFrames.Text))
+                if (!CurrentSettingsList.Edit((Filter)this.CurrentSettings.SelectedItem, this.FilterSelectionBox.SelectionBoxItem, this.InputTime.Text, this.NumFrames.Text, (bool)TriggerSlewAdjust.IsChecked))
                     return;
                 
                 // Refresh CurrentSettings list with updated info
@@ -144,6 +145,8 @@ namespace FilterWheelControl.ControlPanelFunctions
                 AddButton.ClearValue(Button.ForegroundProperty);
                 this.AddButton.Content = "Add";
                 this.AddFilterLabel.Content = "Add Filter:";
+
+                DELETE_ALLOWED = true;
             }
 
             // Reset input boxes
@@ -199,9 +202,7 @@ namespace FilterWheelControl.ControlPanelFunctions
         {
             if (Key.Back == e.Key || Key.Delete == e.Key)
             {
-                CurrentSettingsList.DeleteSelected(this.CurrentSettings.SelectedItems);
-                this.CurrentSettings.Items.Refresh();
-                e.Handled = true;
+                Delete();
             }
             e.Handled = true;
         }
@@ -211,8 +212,27 @@ namespace FilterWheelControl.ControlPanelFunctions
         /// </summary>
         private void DeleteMenuItem_Click(object sender, RoutedEventArgs e)
         {
-            CurrentSettingsList.DeleteSelected(this.CurrentSettings.SelectedItems);
-            this.CurrentSettings.Items.Refresh();
+            Delete();
+        }
+        
+        /// <summary>
+        /// Runs when the Delete button beneath the CurrentSettings list is pressed
+        /// </summary>
+        private void DeleteButton_Click(object sender, RoutedEventArgs e)
+        {
+            Delete();
+        }
+
+        /// <summary>
+        /// Deletes the selected items from the CurrentSettings list
+        /// </summary>
+        private void Delete()
+        {
+            if (DELETE_ALLOWED)
+            {
+                CurrentSettingsList.DeleteSelected(this.CurrentSettings.SelectedItems);
+                this.CurrentSettings.Items.Refresh();
+            }
         }
 
         #endregion // Delete Items
@@ -236,16 +256,26 @@ namespace FilterWheelControl.ControlPanelFunctions
         }
 
         /// <summary>
+        /// Runs when the Edit button beneath the CurrentSettings list is clicked
+        /// </summary>
+        private void EditButton_Click(object sender, RoutedEventArgs e)
+        {
+            EditSetUp();
+        }
+
+        /// <summary>
         /// Sets up the UI to handle an Edit as selected from the CurrentSettings list R-Click menu or double-click
         /// </summary>
         private void EditSetUp()
         {
             if (this.CurrentSettings.SelectedItem != null)
             {
+                DELETE_ALLOWED = false;
+                
                 this.AddButton.Content = "Save";
                 this.AddFilterLabel.Content = "Edit Filter:";
 
-                this.InputTime.Text = Convert.ToString(((Filter)this.CurrentSettings.SelectedItem).ExposureTime);
+                this.InputTime.Text = Convert.ToString(((Filter)this.CurrentSettings.SelectedItem).UserInputTime);
                 this.FilterSelectionBox.SelectedItem = ((Filter)this.CurrentSettings.SelectedItem).FilterType;
                 this.NumFrames.Text = Convert.ToString(((Filter)this.CurrentSettings.SelectedItem).NumExposures);
                 AddButton.Background = Brushes.Blue;
@@ -254,6 +284,92 @@ namespace FilterWheelControl.ControlPanelFunctions
         }
 
         #endregion // Edit Items
+
+        #region Options Boxes
+
+        private void TriggerSlewAdjust_Click(object sender, RoutedEventArgs e)
+        {
+            if ((bool)TriggerSlewAdjust.IsChecked)
+            {
+                foreach (Filter f in CurrentSettingsList.FilterSettings)
+                    f.DisplayTime = f.SlewAdjustedTime;
+            }
+            else
+            {
+                foreach (Filter f in CurrentSettingsList.FilterSettings)
+                    f.DisplayTime = f.UserInputTime;
+            }
+            this.CurrentSettings.Items.Refresh();
+        }
+
+        private void EfficientOrder_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("Efficient ordering feature not yet enabled.");
+        }
+
+        #endregion // Options Boxes
+
+        #region Save and Load
+
+        /// <summary>
+        /// Save the CurrentSettings filter settings to a file for future reference
+        /// </summary>
+        private void SaveButton_Click(object sender, RoutedEventArgs e)
+        {
+            string content = CurrentSettingsList.GenerateFileContent();
+            FileFunctions.FileHandling.CurrentSettingsSave(content);
+        }
+
+        /// <summary>
+        /// Load a filter settings list into the CurrentSettings pane
+        /// Overwrite any present filters
+        /// </summary>
+        private void LoadButton_Click(object sender, RoutedEventArgs e)
+        {
+            clearFilterSettings();
+            
+            string loaded = FileFunctions.FileHandling.CurrentSettingsLoad();
+
+            if (loaded != null)
+            {
+                readFileIntoList(loaded);
+            }
+        }
+
+        /// <summary>
+        /// Removes all filters from the FilterSettings list
+        /// </summary>
+        private void clearFilterSettings()
+        {
+            for (int i = FilterSettings.Count - 1; i >= 0; i--)
+                FilterSettings.RemoveAt(i);
+        }
+
+        /// <summary>
+        /// Given a string containing the data from a filter settings file, populated the CurrentSettings list
+        /// </summary>
+        /// <param name="toBeRead">The string to be read into the CurrentSettings list</param>
+        private void readFileIntoList(string toBeRead)
+        {
+            string[] lineBreaks = { "\r\n" };
+            string[] lines = toBeRead.Split(lineBreaks, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string line in lines)
+            {
+                char[] tabs = { '\t' };
+                string[] vals = line.Split(tabs);
+
+                try
+                {
+                    CurrentSettingsList.Add((object)vals[0], vals[1], vals[2], (bool)TriggerSlewAdjust.IsChecked);
+                }
+                catch (IndexOutOfRangeException)
+                {
+                    MessageBox.Show("There was a problem reading in your file.  Please ensure the file hasn't been corrupted or edited.");
+                }
+            }
+        }
+
+        #endregion // Save and Load
 
         #endregion // Current Settings
 

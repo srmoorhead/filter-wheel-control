@@ -10,8 +10,10 @@ namespace FilterWheelControl.FileFunctions
 {
     class FileHandling
     {
-        private static int DIRECTORY = 0; // the index where the Directory information is stored
-        private static int FILENAME = 1; // the index where the filename information is stored
+        #region FITS exporting
+
+        private static int DIRECTORY_INDEX = 0; // the index where the Directory information is stored
+        private static int FILENAME_INDEX = 1; // the index where the filename information is stored
 
         /// <summary>
         /// Given a frame, exports the frame as a FITS file, separating the frame into multiple fits files, one for each ROI.
@@ -26,7 +28,7 @@ namespace FilterWheelControl.FileFunctions
 
             // Ensure the output file name doesn't conflict with an existing file
             string[] nameInfo = retrieveFileNameInfo(exp);
-            string baseFile = nameInfo[DIRECTORY] + "\\" + nameInfo[FILENAME] + "-Frame-" + fnum;
+            string baseFile = nameInfo[DIRECTORY_INDEX] + "\\" + nameInfo[FILENAME_INDEX] + "-Frame-" + fnum;
             string exportLoc =  baseFile + ".fits";
             if (File.Exists(exportLoc))
             {
@@ -46,7 +48,7 @@ namespace FilterWheelControl.FileFunctions
             IFitsExportSettings settings = (IFitsExportSettings)filemgr.CreateExportSettings(ExportFileType.Fits);
             settings.IncludeAllExperimentInformation = true;
 
-            settings.CustomOutputPath = nameInfo[DIRECTORY];
+            settings.CustomOutputPath = nameInfo[DIRECTORY_INDEX];
             
             settings.OutputPathOption = ExportOutputPathOption.CustomPath;
             settings.OutputMode = ExportOutputMode.OneFilePerRoiPerFrame;
@@ -127,7 +129,115 @@ namespace FilterWheelControl.FileFunctions
             string directory = exp.GetValue(ExperimentSettings.FileNameGenerationDirectory).ToString();
             string base_name = exp.GetValue(ExperimentSettings.FileNameGenerationBaseFileName).ToString();
 
+            // TODO:  Finish the date and time and increment handling
+            /*
+            DateTime thisDay = DateTime.Today;
+            if ((bool)exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate))
+            {
+                base_name += ' ' + thisDay.Date.ToString();
+            }
+            */
+
             return new string[2]{directory, base_name};
         }
+
+        #endregion // FITS Exporting
+
+        #region CurrentSettings IO
+
+        /// <summary>
+        /// Writes a string of content to a .dat file
+        /// </summary>
+        /// <param name="content">The string of information to be written to the file</param>
+        public static void CurrentSettingsSave(string content)
+        {
+            try
+            {
+
+                // Configure save file dialog box
+                Microsoft.Win32.SaveFileDialog dlg = new Microsoft.Win32.SaveFileDialog();
+                dlg.FileName = "FilterSettings"; // Default file name
+                dlg.DefaultExt = ".dat"; // Default file extension
+                dlg.Filter = "Filter data files (.dat)|*.dat"; // Filter files by extension
+
+                // Show save file dialog box
+                Nullable<bool> result = dlg.ShowDialog();
+
+                // Process save file dialog box results
+                if (result == true)
+                {
+                    // Save document
+                    string filename = dlg.FileName;
+
+                    FileStream output = File.Create(filename);
+                    Byte[] info = new UTF8Encoding(true).GetBytes(content);
+
+                    output.Write(info, 0, info.Length);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("There was an error saving your file.  See info here:\n\n" + ex.ToString());
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        public static string CurrentSettingsLoad()
+        {
+            try
+            {
+                // Configure open file dialog box
+                Microsoft.Win32.OpenFileDialog dlg = new Microsoft.Win32.OpenFileDialog();
+                dlg.FileName = "FilterSettings"; // Default file name
+                dlg.DefaultExt = ".dat"; // Default file extension
+                dlg.Filter = "Filter data files (.dat)|*.dat"; // Filter files by extension
+
+                // Show open file dialog box
+                Nullable<bool> result = dlg.ShowDialog();
+
+                // Process open file dialog box results
+                if (result == true)
+                {
+                    // Open document
+                    string filename = dlg.FileName;
+
+                    byte[] bytes;
+
+                    using (FileStream fsSource = new FileStream(filename, FileMode.Open, FileAccess.Read))
+                    {
+
+                        // Read the source file into a byte array.
+                        bytes = new byte[fsSource.Length];
+                        int numBytesToRead = (int)fsSource.Length;
+                        int numBytesRead = 0;
+                        while (numBytesToRead > 0)
+                        {
+                            // Read may return anything from 0 to numBytesToRead.
+                            int n = fsSource.Read(bytes, numBytesRead, numBytesToRead);
+
+                            // Break when the end of the file is reached.
+                            if (n == 0)
+                                break;
+
+                            numBytesRead += n;
+                            numBytesToRead -= n;
+                        }
+                    }
+
+                    string return_val = System.Text.Encoding.UTF8.GetString(bytes, 0, bytes.Length);
+
+                    return return_val;
+                }
+            }
+            catch (FileNotFoundException e)
+            {
+                MessageBox.Show("There was an error reading in the file.  See info here:\n\n" + e.Message);
+            }
+            return null;
+        }
+
+        #endregion // CurrentSettings IO
     }
 }
