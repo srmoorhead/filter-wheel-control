@@ -260,7 +260,7 @@ namespace FilterWheelControl.SettingsList
                 {
                     for (int exposure = 0; exposure < _FILTER_SETTINGS[frame].NumExposures; exposure++)
                     {
-                        exposure_times[index] = _FILTER_SETTINGS[frame].UserInputTime * 1000.0; // Convert from s to ms
+                        exposure_times[index] = _FILTER_SETTINGS[frame].DisplayTime * 1000.0; // Convert from s to ms
                         filter_types[index] = _FILTER_SETTINGS[frame].FilterType;
                         index++;
                     }

@@ -371,6 +371,42 @@ namespace FilterWheelControl.ControlPanelFunctions
 
         #endregion // Save and Load
 
+        #region Enable/Disable Changes
+
+        /// <summary>
+        /// Disables any Add, Edit, Delete, or Load functions
+        /// </summary>
+        private void disableFilterSettingsChanges()
+        {
+            AddButton.IsHitTestVisible = false;
+            DeleteButton.IsHitTestVisible = false;
+            EditButton.IsHitTestVisible = false;
+            LoadButton.IsHitTestVisible = false;
+            CurrentSettings.IsHitTestVisible = false;
+            InputTime.KeyDown -= InputTime_KeyDown;
+            NumFrames.KeyDown -= NumFrames_KeyDown;
+            TriggerSlewAdjust.IsHitTestVisible = false;
+            EfficientOrder.IsHitTestVisible = false;
+        }
+
+        /// <summary>
+        /// Re-enables any Add, Edit, Delete, or Load functions
+        /// </summary>
+        private void enableFilterSettingsChanges()
+        {
+            AddButton.IsHitTestVisible = true;
+            DeleteButton.IsHitTestVisible = true;
+            EditButton.IsHitTestVisible = true;
+            LoadButton.IsHitTestVisible = true;
+            CurrentSettings.IsHitTestVisible = true;
+            InputTime.KeyDown += InputTime_KeyDown;
+            NumFrames.KeyDown +=NumFrames_KeyDown;
+            TriggerSlewAdjust.IsHitTestVisible = true;
+            EfficientOrder.IsHitTestVisible = true;
+        }
+
+        #endregion // Enable/Disable Changes
+
         #endregion // Current Settings
 
         #region Override Buttons
@@ -395,6 +431,7 @@ namespace FilterWheelControl.ControlPanelFunctions
                     // Update UI to reflect running
                     this.ManualControl.IsHitTestVisible = false;
                     setRunGreen();
+                    disableFilterSettingsChanges();
 
                     // Create object to pass this and _APP
                     Tuple<ILightFieldApplication, ControlPanel> args = new Tuple<ILightFieldApplication, ControlPanel>(_APP, this);
@@ -420,6 +457,7 @@ namespace FilterWheelControl.ControlPanelFunctions
                     // Update UI to reflect running
                     this.ManualControl.IsHitTestVisible = false;
                     setAcquireGreen();
+                    disableFilterSettingsChanges();
 
                     // Create object to pass this and _APP
                     Tuple<ILightFieldApplication, ControlPanel> args = new Tuple<ILightFieldApplication, ControlPanel>(_APP, this);
@@ -559,6 +597,8 @@ namespace FilterWheelControl.ControlPanelFunctions
                 EXPERIMENT.Stop();
                 Thread flashStopButton = new Thread(flashStop);
                 flashStopButton.Start(FLASH_INTERVAL);
+
+                enableFilterSettingsChanges();
             }
             else
                 AutomatedControlDisabledMessage();

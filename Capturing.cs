@@ -39,18 +39,13 @@ namespace FilterWheelControl.ImageCapturing
         /// <param name="args">A tuple containig the ILightFieldApplication app and the ControlPanel instance currently running.  Caution:  No check is made before casting!</param>
         public static void Run(object args)
         {
-            // Make sure we aren't already running
             if (_IS_RUNNING)
                 return;
 
-            // Read in the args
             Tuple<ILightFieldApplication, ControlPanel> arguments = (Tuple<ILightFieldApplication, ControlPanel>)args;
-
-            // Transition to Run if we are currently Acquiring
             if (_IS_ACQUIRING)
                 transitionToRun(arguments.Item2);
             
-            // Reflect that the system is running
             _STOP = false;
             _IS_RUNNING = true;
             
@@ -60,32 +55,32 @@ namespace FilterWheelControl.ImageCapturing
             double[] exposure_times = runVars.Item2;
             string[] filters = runVars.Item3;
 
-            // Start rotating the filter wheel to the first position
+            // Set up the first exposure
             Thread rotate = new Thread(WheelInteraction.RotateWheelToFilter);
-            int current_index = 0; // the first filter in the sequence
+            int current_index = 0;
             rotate.Start(filters[current_index]);
 
-            // Set the exposure value to the first val and capture display fuctionality
             IExperiment exp = arguments.Item1.Experiment;
             exp.SetValue(CameraSettings.ShutterTimingExposureTime, exposure_times[current_index]);
-            IDisplayViewer view = (arguments.Item1.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, MAIN_VIEW));
 
-            // Wait for the filter wheel to finish rotating
+            // Capture display functionality
+            IDisplayViewer view = arguments.Item1.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, MAIN_VIEW);
+            IImageDataSet frame;
+
             rotate.Join();
 
-            // Begin capture loop:
+            ////////////////////////////////
+            ////  Begin the capture loop ///
+            ////////////////////////////////
+
             while (!_STOP)
             {
                 // Capture frame
-                IImageDataSet frame;
                 if (exp.IsReadyToRun && !exp.IsRunning)
-                {
                     frame = exp.Capture(1);
-                }
                 else
                 {
-                    // LightField has attempted to initiate capturing via the regular Run or Acquire operations.
-                    // Concurrent capturing will cause LightField to crash.  Save the data and halt all acquisition.
+                    // Stop acquisition
                     exp.Stop();
                     HaltAcquisition(arguments.Item2, CONCURRENT);
                     return;
@@ -93,26 +88,20 @@ namespace FilterWheelControl.ImageCapturing
 
                 if (!_STOP)
                 {
-                    // Begin rotating the filter wheel
-                    current_index = current_index = current_index == max_index ? 0 : current_index + 1;
+                    // Set up the next exposure
+                    current_index = current_index == max_index ? 0 : current_index + 1;
 
                     rotate = new Thread(WheelInteraction.RotateWheelToFilter);
                     rotate.Start(filters[current_index]);
 
-                    // Display the current frame
-                    view.Display("Live Multi-Filter Data", frame);
+                    displayFrameInView(frame, view);
 
-                    // Change the exposure value
                     exp.SetValue(CameraSettings.ShutterTimingExposureTime, exposure_times[current_index]);
 
-                    // Wait for the filter wheel to finish rotating
                     rotate.Join();
                 }
                 else
-                {
-                    // Display the last frame
-                    view.Display("Live Multi-Filter Data", frame);
-                }
+                    displayFrameInView(frame, view);
             }
             wrapUp(arguments.Item2);
         }
@@ -129,18 +118,13 @@ namespace FilterWheelControl.ImageCapturing
         /// <param name="args">A Tuple containing Item 1: the LightField Application object and Item 2: The ControlPanel object</param>
         public static void Acquire(object args)
         {
-            // Make sure we aren't already Acquiring
             if (_IS_ACQUIRING)
                 return;
 
-            // Read in the args
             Tuple<ILightFieldApplication, ControlPanel> arguments = (Tuple<ILightFieldApplication, ControlPanel>)args;
-
-            // Transition to Acquire if we are currently Running
             if (_IS_RUNNING)
                 transitionToAcquire(arguments.Item2);
             
-            // Reflect that the system is running
             _STOP = false;
             _IS_ACQUIRING = true;
 
@@ -153,31 +137,26 @@ namespace FilterWheelControl.ImageCapturing
             // Check that the user will complete a full filter sequence
             IExperiment exp = arguments.Item1.Experiment;
             int frames_to_store = Convert.ToInt32(exp.GetValue(ExperimentSettings.AcquisitionFramesToStore));
-            if (max_index + 1 > frames_to_store)
+            if (!checkForFullSequence(max_index, frames_to_store))
             {
-                MessageBoxResult okayToContinue = MessageBox.Show("With the given settings, you will not complete an entire sequence of filters.  Is this okay?", "Warning", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-                if (okayToContinue == MessageBoxResult.No)
-                {
-                    HaltAcquisition(arguments.Item2, SELECTED);
-                    return;
-                }
+                HaltAcquisition(arguments.Item2, SELECTED);
+                return;
             }
 
             // Set up first exposure
             int current_index = 0;
-
-            // Start rotating the filter wheel to the first position
             Thread rotate = new Thread(WheelInteraction.RotateWheelToFilter);
             rotate.Start(filters[current_index]);
 
-            // Set the exposure value to the first val and capture display fuctionality
             exp.SetValue(CameraSettings.ShutterTimingExposureTime, exposure_times[current_index]);
             IDisplayViewer view = (arguments.Item1.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, MAIN_VIEW));
 
-            // Wait for the filter wheel to finish rotating
             rotate.Join();
 
-            // Begin capture loop:
+            ////////////////////////////////
+            ////  Begin the capture loop ///
+            ////////////////////////////////
+
             int frame_num = 1;
             while (!_STOP && (frame_num <= frames_to_store))
             {
@@ -189,8 +168,7 @@ namespace FilterWheelControl.ImageCapturing
                 }
                 else
                 {
-                    // LightField has attempted to initiate capturing via the regular Run or Acquire operations.
-                    // Concurrent capturing will cause LightField to crash.  Save the data and halt all acquisition.
+                    // Stop acquisition
                     exp.Stop();
                     HaltAcquisition(arguments.Item2, CONCURRENT);
                     return;
@@ -198,28 +176,23 @@ namespace FilterWheelControl.ImageCapturing
 
                 if (!_STOP)
                 {
-                    // Begin rotating the filter wheel
+                    // Set up the next frame
                     current_index = current_index = current_index == max_index ? 0 : current_index + 1;
                     rotate = new Thread(WheelInteraction.RotateWheelToFilter);
                     rotate.Start(filters[current_index]);
 
-                    // Export the current frame as a FITS file
+                    // Export the current frame as a FITS file and display it
                     if (!FileHandling.exportFITSFrame(frame_num, frame, arguments.Item1))
                     {
                         // there has been an export error
                         exp.Stop();
                         HaltAcquisition(arguments.Item2, EXPORT);
                     }
+                    displayFrameInView(frame, view);
 
-                    // Display the current frame
-                    view.Display("Live Multi-Filter Data", frame);
-
-                    // Change the exposure value
+                    // Finish set up for next frame
                     exp.SetValue(CameraSettings.ShutterTimingExposureTime, exposure_times[current_index]);
-
                     frame_num++;
-
-                    // Wait for the filter wheel to finish rotating
                     rotate.Join();
                 }
                 else
@@ -233,10 +206,25 @@ namespace FilterWheelControl.ImageCapturing
                     }
                     
                     // Display the last frame
-                    view.Display("Live Multi-Filter Data", frame);
+                    displayFrameInView(frame, view);
                 }
             }
             wrapUp(arguments.Item2);
+        }
+
+        /// <summary>
+        /// Check if the user will complete a full filter sequence
+        /// If not, asks the user what to do
+        /// </summary>
+        /// <param name="max">The maximum index in the sequence (e.g. with 4 filters, max = 3</param>
+        /// <param name="total">The total number of frames to capture</param>
+        /// <returns>true if acquisition should continue, false otherwise</returns>
+        private static bool checkForFullSequence(int max, int total)
+        {
+            MessageBoxResult okayToContinue = MessageBoxResult.Yes;
+            if (max + 1 > total)
+                okayToContinue = MessageBox.Show("With the given settings, you will not complete an entire sequence of filters.  Is this okay?", "Warning", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            return okayToContinue == MessageBoxResult.Yes;
         }
 
         #endregion // Acquire
@@ -290,6 +278,38 @@ namespace FilterWheelControl.ImageCapturing
         }
 
         #endregion // Transitions
+
+        #region Display
+
+        /// <summary>
+        /// Given a frame and a view object, displays the frame in the view
+        /// Maintains most view window settings
+        /// </summary>
+        /// <param name="frame">An IImageDataSet object to be displayed</param>
+        /// <param name="view">The IDisplayViewer object in which to display the frame</param>
+        private static void displayFrameInView(IImageDataSet frame, IDisplayViewer view)
+        {
+            object selectedRegion = null;
+            object selectedPosition = null;
+            
+            if (view.DataSelection != null)
+                selectedRegion = view.DataSelection;
+            if (view.CursorPosition != null)
+                selectedPosition = view.CursorPosition;
+
+            double zoom = view.Zoom;
+
+            view.Display("Live Multi-Filter Data", frame);
+
+            if (selectedRegion != null)
+                view.DataSelection = (System.Windows.Rect)selectedRegion;
+            if (selectedPosition != null)
+                view.CursorPosition = (Nullable<System.Windows.Point>)selectedPosition;
+            
+            view.Zoom = zoom;
+        }
+
+        #endregion // Display
 
         #region Halting and Wrap Up
 
