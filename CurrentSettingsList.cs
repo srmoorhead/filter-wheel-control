@@ -24,7 +24,8 @@ namespace FilterWheelControl.SettingsList
         private static volatile ObservableCollection<Filter> _FILTER_SETTINGS = new ObservableCollection<Filter>();
         private static readonly object CURRENT_SETTINGS_LOCK = new object();
 
-        private static double TRIGGER_SLEW_CORRECTION = 0.002; // seconds
+        private static readonly double TRIGGER_SLEW_CORRECTION = 0.002; // seconds
+        private static readonly double MS_IN_12_HRS = 3600000 * 12; // milliseconds in 12 hours, = 4.32e+7
 
         #endregion // Instance Variables
 
@@ -237,15 +238,16 @@ namespace FilterWheelControl.SettingsList
         #region Generate Runtime Variables
 
         /// <summary>
-        /// Provides the max index, and string[] of filter types and a double[] of exposure times from the current FILTER_SETTINGS variable
+        /// Provides the max index, a string[] of filter types, a double[] of exposure times, and the time-generated zero padding val from the current FILTER_SETTINGS variable
         /// Supports both the acquire_images and preview_images threads
         /// </summary>
-        /// <returns>A Tuple with Item1 = int max_index and Item2 = double[] exposure_times and Item3 = string[] filter_types</returns>
-        public static Tuple<int, double[], string[]> getRunVars()
+        /// <returns>A Tuple with Item1 = int max_index and Item2 = double[] exposure_times and Item3 = string[] filter_types and Item4 = </returns>
+        public static Tuple<int, double[], string[], int> getRunVars()
         {
             int max_index;
             double[] exposure_times;
             string[] filter_types;
+            double fNumPad;
             
             lock (CURRENT_SETTINGS_LOCK)
             {
@@ -254,6 +256,7 @@ namespace FilterWheelControl.SettingsList
                 max_index = total_num_frames - 1;
                 exposure_times = new double[total_num_frames];
                 filter_types = new string[total_num_frames];
+                fNumPad = 0;
 
                 int index = 0;
                 for (int frame = 0; frame < _FILTER_SETTINGS.Count; frame++)
@@ -262,12 +265,16 @@ namespace FilterWheelControl.SettingsList
                     {
                         exposure_times[index] = _FILTER_SETTINGS[frame].DisplayTime * 1000.0; // Convert from s to ms
                         filter_types[index] = _FILTER_SETTINGS[frame].FilterType;
+                        fNumPad += exposure_times[index];
                         index++;
                     }
                 }
             }
 
-            return new Tuple<int, double[], string[]>(max_index, exposure_times, filter_types);
+            fNumPad = MS_IN_12_HRS / fNumPad; // num cycles possible in 12 hours
+            fNumPad = Math.Ceiling(Math.Log10(fNumPad *= (max_index + 1))); // num places to have in file numbering
+
+            return new Tuple<int, double[], string[], int>(max_index, exposure_times, filter_types, Convert.ToInt16(fNumPad));
         }
 
         /// <summary>

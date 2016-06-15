@@ -23,10 +23,10 @@ namespace FilterWheelControl.ImageCapturing
         public static volatile bool _IS_RUNNING = false;
         public static volatile bool _IS_ACQUIRING = false;
         
-        private static int MAIN_VIEW = 0; // the primary view in which captured images are displayed
-        private static int CONCURRENT = 0; // denotes the case in which concurrent capturing halts acquisition
-        private static int SELECTED = 1; // denotes the case in which the user selects to halt acquisition
-        private static int EXPORT = 2;  // denotes the case in which there is an export error to halt acquisition
+        private static readonly int MAIN_VIEW = 0; // the primary view in which captured images are displayed
+        private static readonly int CONCURRENT = 0; // denotes the case in which concurrent capturing halts acquisition
+        private static readonly int SELECTED = 1; // denotes the case in which the user selects to halt acquisition
+        private static readonly int EXPORT = 2;  // denotes the case in which there is an export error to halt acquisition
 
         #endregion // Instance Variables
 
@@ -50,7 +50,7 @@ namespace FilterWheelControl.ImageCapturing
             _IS_RUNNING = true;
             
             // Gather run variables
-            Tuple<int, double[], string[]> runVars = CurrentSettingsList.getRunVars();
+            Tuple<int, double[], string[], int> runVars = CurrentSettingsList.getRunVars();
             int max_index = runVars.Item1;
             double[] exposure_times = runVars.Item2;
             string[] filters = runVars.Item3;
@@ -129,12 +129,10 @@ namespace FilterWheelControl.ImageCapturing
             _IS_ACQUIRING = true;
 
             // Gather run variables
-            Tuple<int, double[], string[]> runVars = CurrentSettingsList.getRunVars();
-            int max_index = runVars.Item1;
-            double[] exposure_times = runVars.Item2;
-            string[] filters = runVars.Item3;
+            Tuple<int, double[], string[], int> runVars = CurrentSettingsList.getRunVars();
 
             // Check that the user will complete a full filter sequence
+            int max_index = runVars.Item1;
             IExperiment exp = arguments.Item1.Experiment;
             int frames_to_store = Convert.ToInt32(exp.GetValue(ExperimentSettings.AcquisitionFramesToStore));
             if (!checkForFullSequence(max_index, frames_to_store))
@@ -145,11 +143,15 @@ namespace FilterWheelControl.ImageCapturing
 
             // Set up first exposure
             int current_index = 0;
+            string[] filters = runVars.Item3;
             Thread rotate = new Thread(WheelInteraction.RotateWheelToFilter);
             rotate.Start(filters[current_index]);
 
+            double[] exposure_times = runVars.Item2;
             exp.SetValue(CameraSettings.ShutterTimingExposureTime, exposure_times[current_index]);
             IDisplayViewer view = (arguments.Item1.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, MAIN_VIEW));
+
+            int padVal = Math.Min(runVars.Item4, Convert.ToInt16(Math.Ceiling(Math.Log10(frames_to_store))));
 
             rotate.Join();
 
@@ -182,7 +184,7 @@ namespace FilterWheelControl.ImageCapturing
                     rotate.Start(filters[current_index]);
 
                     // Export the current frame as a FITS file and display it
-                    if (!FileHandling.exportFITSFrame(frame_num, frame, arguments.Item1))
+                    if (!FileHandling.exportFITSFrame(frame_num, frame, arguments.Item1, padVal))
                     {
                         // there has been an export error
                         exp.Stop();
@@ -198,7 +200,7 @@ namespace FilterWheelControl.ImageCapturing
                 else
                 {
                     // Export the last frame as a FITS file
-                    if (!FileHandling.exportFITSFrame(frame_num, frame, arguments.Item1))
+                    if (!FileHandling.exportFITSFrame(frame_num, frame, arguments.Item1, padVal))
                     {
                         // there has been an export error
                         exp.Stop();

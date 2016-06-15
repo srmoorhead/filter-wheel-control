@@ -34,9 +34,9 @@ namespace FilterWheelControl.ControlPanelFunctions
         #region Instance Variables
 
         // Constants
-        private static string[] AVAILABLE_FILTERS = { "u", "g", "r", "i", "z", "BG40", "DARK" }; // Change this array if any filters get changed
-        private static string InputTimeTextbox_DEFAULT_TEXT = "Exposure Time (s)"; // Change this string if you wish to change the text in the InputTime textbox
-        private static string NumFramesTextbox_DEFAULT_TEXT = "Num"; // Change this string if you wish to change the text in the NumFrames textbox
+        private static readonly string[] AVAILABLE_FILTERS = { "u", "g", "r", "i", "z", "BG40", "DARK" }; // Change this array if any filters get changed
+        private static readonly string InputTimeTextbox_DEFAULT_TEXT = "Exposure Time (s)"; // Change this string if you wish to change the text in the InputTime textbox
+        private static readonly string NumFramesTextbox_DEFAULT_TEXT = "Num"; // Change this string if you wish to change the text in the NumFrames textbox
         public static readonly int FLASH_INTERVAL = 500; // Half the period of Stop button flashing
         private static bool DELETE_ALLOWED = true;
         
