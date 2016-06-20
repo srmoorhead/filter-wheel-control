@@ -34,7 +34,6 @@ namespace FilterWheelControl.ControlPanelFunctions
         #region Instance Variables
 
         // Constants
-        private static readonly string[] AVAILABLE_FILTERS = { "u", "g", "r", "i", "z", "BG40", "DARK" }; // Change this array if any filters get changed
         private static readonly string InputTimeTextbox_DEFAULT_TEXT = "Exposure Time (s)"; // Change this string if you wish to change the text in the InputTime textbox
         private static readonly string NumFramesTextbox_DEFAULT_TEXT = "Num"; // Change this string if you wish to change the text in the NumFrames textbox
         public static readonly int FLASH_INTERVAL = 500; // Half the period of Stop button flashing
@@ -43,6 +42,11 @@ namespace FilterWheelControl.ControlPanelFunctions
         // LightField Variables
         public static IExperiment EXPERIMENT;
         private ILightFieldApplication _APP;
+        private IDisplayViewerControl _VIEWER;
+
+        // Instrument Panel Variables
+        private List<TextBlock> FW_INST_LABELS; // holds the labels that make up the filter wheel instrument on the instrument panel, 0 is the current filter, moving clockwise
+        private static readonly object FW_INST_LOCK = new object();
 
         #endregion // Instance Variables
 
@@ -60,14 +64,24 @@ namespace FilterWheelControl.ControlPanelFunctions
 
             EXPERIMENT = app.Experiment;
             _APP = app;
+            
+            // Set up the viewer
+            _VIEWER = _APP.DisplayManager.CreateDisplayViewerControl();
+            ViewerPane.Children.Add(_VIEWER.Control);
+            _VIEWER.DisplayViewer.Clear();
+            _VIEWER.DisplayViewer.Add(_VIEWER.DisplayViewer.LiveDisplaySource);
 
             new ListViewDragDropManager<Filter>(this.CurrentSettings);
 
             // Populate the Filter Selection Box and Jump Selection Box with the available filters
-            for (int i = 0; i < AVAILABLE_FILTERS.Length; i++)
+            // Set the initial state of the instrument panel
+            string[] filters = WheelInteraction.getCurrentOrder();
+            FW_INST_LABELS = new List<TextBlock> { F0, F1, F2, F3, F4, F5, F6, F7 };
+            for (int i = 0; i < filters.Length; i++)
             {
-                FilterSelectionBox.Items.Add(AVAILABLE_FILTERS[i]);
-                JumpSelectionBox.Items.Add(AVAILABLE_FILTERS[i]);
+                FilterSelectionBox.Items.Add(filters[i]);
+                JumpSelectionBox.Items.Add(filters[i]);
+                FW_INST_LABELS[i].Text = filters[i];
             }
         }
 
@@ -434,7 +448,7 @@ namespace FilterWheelControl.ControlPanelFunctions
                     disableFilterSettingsChanges();
 
                     // Create object to pass this and _APP
-                    Tuple<ILightFieldApplication, ControlPanel> args = new Tuple<ILightFieldApplication, ControlPanel>(_APP, this);
+                    Tuple<ILightFieldApplication, ControlPanel, IDisplayViewerControl> args = new Tuple<ILightFieldApplication, ControlPanel, IDisplayViewerControl>(_APP, this, _VIEWER);
 
                     // Start capturing images
                     Thread imageCapturing = new Thread(Capturing.Run);
@@ -460,7 +474,7 @@ namespace FilterWheelControl.ControlPanelFunctions
                     disableFilterSettingsChanges();
 
                     // Create object to pass this and _APP
-                    Tuple<ILightFieldApplication, ControlPanel> args = new Tuple<ILightFieldApplication, ControlPanel>(_APP, this);
+                    Tuple<ILightFieldApplication, ControlPanel, IDisplayViewerControl> args = new Tuple<ILightFieldApplication, ControlPanel, IDisplayViewerControl>(_APP, this, _VIEWER);
 
                     // Start capturing images
                     Thread imageCapturing = new Thread(Capturing.Acquire);
@@ -563,6 +577,11 @@ namespace FilterWheelControl.ControlPanelFunctions
                 MessageBox.Show("To operate in multi-filter mode, you must specify some filter settings.\nIf you wish to operate manually, please use the Run and Acquire buttons at the top of the LightField window.");
                 return false;
             }
+            if ((string)this.AddButton.Content == "Save")
+            {
+                MessageBox.Show("Please finish editing the selected filter and click Save, then try again.");
+                return false;
+            }
 
             return true;
         }
@@ -642,7 +661,8 @@ namespace FilterWheelControl.ControlPanelFunctions
         public void ResetUI()
         {
             // Reactivate Manual Control features
-            ManualControl.IsHitTestVisible = true;
+            if(!Capturing._TRANSITIONING)
+                ManualControl.IsHitTestVisible = true;
 
             // Update button colors to the user knows which features are active
             setAcquireClear();
@@ -739,6 +759,57 @@ namespace FilterWheelControl.ControlPanelFunctions
         #endregion //Manual Control Messages
 
         #endregion // Manual Control Buttons
+
+        #region Instrument Panel
+
+        /// <summary>
+        /// Updates the filter wheel instrument on the instrument panel to reflect the current order
+        /// </summary>
+        public void updateFWInstrumentOrder()
+        {
+            string[] newOrder = WheelInteraction.getCurrentOrder();
+            lock (FW_INST_LOCK)
+            {
+                for (int i = 0; i < FW_INST_LABELS.Count(); i++)
+                    FW_INST_LABELS[i].Text = newOrder[i];
+            }
+        }
+
+        /// <summary>
+        /// Updates the filter wheel instrument on the instrument panel to reflect that the filter wheel is rotating
+        /// </summary>
+        public void updateFWInstrumentRotate()
+        {
+            lock (FW_INST_LOCK)
+            {
+                foreach (TextBlock t in FW_INST_LABELS)
+                    t.Text = "...";
+            }
+        }
+
+        /// <summary>
+        /// Updates the Instrument Panel to show the latest frame metadata information
+        /// </summary>
+        /// <param name="m">The metadata object holding the new information</param>
+        public void updatePanelMetaData(Metadata m, DateTime expStart, TimeSpan elapsed)
+        {
+            this.PrevExpSt.Text = ((DateTime)(expStart + m.ExposureStarted)).ToString("HH:mm:ss.ffff");
+            this.PrevExpEnd.Text = ((DateTime)(expStart + m.ExposureEnded)).ToString("HH:mm:ss.ffff");
+            this.PrevExpDur.Text = ((TimeSpan)(m.ExposureEnded - m.ExposureStarted)).ToString("c");
+            this.ElapsedRunTime.Text = elapsed.ToString("c");
+        }
+
+        /// <summary>
+        /// Given a new string to display, updates the current status to the new string and the previous status to the string that was in current status before the update.
+        /// </summary>
+        /// <param name="s">The string to change the current status to</param>
+        public void updateCurrentPreviousStatus(String s)
+        {
+            this.PreviousStatus.Text = this.CurrentStatus.Text;
+            this.CurrentStatus.Text = s;
+        }
+
+        #endregion Instrument Panel
 
     }
 }

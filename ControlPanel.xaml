@@ -1,7 +1,7 @@
 ﻿<UserControl x:Class="FilterWheelControl.ControlPanelFunctions.ControlPanel"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Height="600" Width="800">
+    Height="700" Width="800">
     <Grid>
         <StackPanel Margin="10,10,540,221" Orientation="Vertical">
             <Label Content="Current Filter Settings" HorizontalAlignment="Left" Margin="62,0,0,0" VerticalAlignment="Top" Width="126"/>
@@ -24,51 +24,109 @@
                 </ListView.View>
             </ListView>
             <Grid Height="22">
-                <Button x:Name="EditButton" Content="Edit" HorizontalAlignment="Left" VerticalAlignment="Top" Width="63" Margin="125,0,0,0" Click="EditButton_Click"/>
-                <Button x:Name="DeleteButton" Content="Delete" HorizontalAlignment="Left" Margin="188,0,0,0" VerticalAlignment="Top" Width="62" Click="DeleteButton_Click"/>
-                <Button x:Name="SaveButton" Content="Save" HorizontalAlignment="Left" VerticalAlignment="Top" Width="62.5" Click="SaveButton_Click"/>
-                <Button x:Name="LoadButton" Content="Load" HorizontalAlignment="Left" Margin="62,0,0,0" VerticalAlignment="Top" Width="63" Click="LoadButton_Click"/>
+                <Button x:Name="EditButton" Content="Edit" HorizontalAlignment="Left" VerticalAlignment="Top" Width="63" Margin="125,0,0,0" Click="EditButton_Click" ToolTip="Edit the selected filter."/>
+                <Button x:Name="DeleteButton" Content="Delete" HorizontalAlignment="Left" Margin="188,0,0,0" VerticalAlignment="Top" Width="62" Click="DeleteButton_Click" ToolTip="Delete all selected filters from the settings list."/>
+                <Button x:Name="SaveButton" Content="Save" HorizontalAlignment="Left" VerticalAlignment="Top" Width="62.5" Click="SaveButton_Click" ToolTip="Save the current filter sequence."/>
+                <Button x:Name="LoadButton" Content="Load" HorizontalAlignment="Left" Margin="62,0,0,0" VerticalAlignment="Top" Width="63" Click="LoadButton_Click" ToolTip="Load a pre-existing filter sequence."/>
             </Grid>
         </StackPanel>
         <Label Content="Edit Filter Settings" HorizontalAlignment="Left" Margin="485.5,10,0,0" VerticalAlignment="Top"/>
-        <Grid Margin="330,57,45,517">
+        <Grid Margin="330,57,45,617">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="194*"/>
                 <ColumnDefinition Width="231*"/>
             </Grid.ColumnDefinitions>
-            <ComboBox x:Name="FilterSelectionBox" HorizontalAlignment="Left" Margin="90,0,0,0" VerticalAlignment="Top" Width="75"/>
+            <ComboBox x:Name="FilterSelectionBox" HorizontalAlignment="Left" Margin="90,0,0,0" VerticalAlignment="Top" Width="75" ToolTip="Select a filter."/>
             <Label x:Name="AddFilterLabel" Content="Add Filter:" HorizontalAlignment="Left" VerticalAlignment="Top"/>
-            <TextBox x:Name="InputTime" KeyDown="InputTime_KeyDown" GotFocus="InputTime_GotFocus" LostFocus="InputTime_LostFocus" HorizontalAlignment="Left"  Height="23" Margin="180,0,0,0" TextWrapping="Wrap" Text="Exposure Time (s)" VerticalAlignment="Top" Width="110" Grid.ColumnSpan="2"/>
-            <TextBox x:Name="NumFrames" KeyDown="NumFrames_KeyDown" GotFocus="NumFrames_GotFocus" LostFocus="NumFrames_LostFocus"  HorizontalAlignment="Left" Height="23" Margin="101,0,0,0" TextWrapping="Wrap" Text="Num" VerticalAlignment="Top" Width="40" Grid.Column="1"/>
-            <Button x:Name="AddButton" Content="Add" Click="AddButton_Click" HorizontalAlignment="Left" Margin="156,0,0,0" VerticalAlignment="Top" Width="75" Grid.Column="1"/>
+            <TextBox x:Name="InputTime" KeyDown="InputTime_KeyDown" GotFocus="InputTime_GotFocus" LostFocus="InputTime_LostFocus" HorizontalAlignment="Left"  Height="23" Margin="180,0,0,0" TextWrapping="Wrap" Text="Exposure Time (s)" VerticalAlignment="Top" Width="110" Grid.ColumnSpan="2" ToolTip="Enter an exposure time in seconds (decimal values are allowed)."/>
+            <TextBox x:Name="NumFrames" KeyDown="NumFrames_KeyDown" GotFocus="NumFrames_GotFocus" LostFocus="NumFrames_LostFocus"  HorizontalAlignment="Left" Height="23" Margin="101,0,0,0" TextWrapping="Wrap" Text="Num" VerticalAlignment="Top" Width="40" Grid.Column="1" ToolTip="Enter a number of consecutive frames to capture"/>
+            <Button x:Name="AddButton" Content="Add" Click="AddButton_Click" HorizontalAlignment="Left" Margin="156,0,0,0" VerticalAlignment="Top" Width="75" Grid.Column="1" ToolTip="Add the filter, exposure time, and number of consecutive captures to the Current Filter Settings list."/>
         </Grid>
         <Label Content="Manual Wheel Controls" HorizontalAlignment="Left" Margin="477,319,0,0" VerticalAlignment="Top"/>
-        <Grid Margin="330,212,230,372">
-            <RadioButton x:Name="ManualControl" GroupName="Controller" Content="Manual Control" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="139,0,0,0" IsChecked="True"/>
-            <RadioButton x:Name="AutomatedControl" GroupName="Controller" Content="Automated Control" HorizontalAlignment="Left" VerticalAlignment="Top" IsChecked="False"/>
+        <Grid Margin="330,212,230,464">
+            <RadioButton x:Name="ManualControl" GroupName="Controller" Content="Manual Control" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="139,0,0,0" IsChecked="True" ToolTip="Enable manual control of the filter wheel."/>
+            <RadioButton x:Name="AutomatedControl" GroupName="Controller" Content="Automated Control" HorizontalAlignment="Left" VerticalAlignment="Top" IsChecked="False" ToolTip="Enable automated control of the filter wheel."/>
         </Grid>
-        <Grid Margin="330,241,45,337">
-            <Button x:Name="RunOverride" Content="Run" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Click="RunOverride_Click"/>
-            <Button x:Name="AcquireOverride" Content="Acquire" HorizontalAlignment="Left" Margin="125,0,0,0" VerticalAlignment="Top" Width="75" Click="AcquireOverride_Click"/>
-            <Button x:Name="StopOverride" Content="Stop" HorizontalAlignment="Left" Margin="350,0,0,0" VerticalAlignment="Top" Width="75" Click="StopOverride_Click"/>
+        <Grid Margin="330,241,45,434">
+            <Button x:Name="RunOverride" Content="Run" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Click="RunOverride_Click" ToolTip="Capture images indefinitely, but do not save any."/>
+            <Button x:Name="AcquireOverride" Content="Acquire" HorizontalAlignment="Left" Margin="125,0,0,0" VerticalAlignment="Top" Width="75" Click="AcquireOverride_Click" ToolTip="Capture images and save them."/>
+            <Button x:Name="StopOverride" Content="Stop" HorizontalAlignment="Left" Margin="350,0,0,0" VerticalAlignment="Top" Width="75" Click="StopOverride_Click" ToolTip="Stop capturing images."/>
         </Grid>
-        <Grid Margin="330,355,45,223">
-            <Button x:Name="CCW" Content="Rotate CCW" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Click="CCW_Click"/>
-            <Button x:Name="CW" Content="Rotate CW" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Click="CW_Click" Margin="350,0,0,0"/>
-            <Button x:Name="JumpButton" Content="Jump" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Margin="218,0,0,0" Click="JumpButton_Click"/>
-            <ComboBox x:Name="JumpSelectionBox" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Margin="138,0,0,0"/>
+        <Grid Margin="330,355,45,321">
+            <Button x:Name="CCW" Content="Rotate CCW" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Click="CCW_Click" ToolTip="Rotate the filter wheel counterclockwise one position w.r.t. the camera."/>
+            <Button x:Name="CW" Content="Rotate CW" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Click="CW_Click" Margin="350,0,0,0" ToolTip="Rotate the filter wheel clockwise one position w.r.t. the camera."/>
+            <Button x:Name="JumpButton" Content="Jump" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Margin="218,0,0,0" Click="JumpButton_Click" ToolTip="Jump to the specified filter."/>
+            <ComboBox x:Name="JumpSelectionBox" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Margin="138,0,0,0" ToolTip="Select a filter."/>
         </Grid>
-        <Grid Margin="330,105,45,442">
-            <CheckBox x:Name="TriggerSlewAdjust" Content="Adjust exposure times for trigger slew" HorizontalAlignment="Left" Margin="0,8,0,0" VerticalAlignment="Top" Click="TriggerSlewAdjust_Click" IsChecked="False"/>
-            <CheckBox x:Name="EfficientOrder" Content="Order filters to reduce down time" HorizontalAlignment="Left" Margin="0,29,0,0" VerticalAlignment="Top" Click="EfficientOrder_Click"/>
+        <Grid Margin="330,105,45,537">
+            <CheckBox x:Name="TriggerSlewAdjust" Content="Adjust exposure times for trigger slew" HorizontalAlignment="Left" Margin="0,8,0,0" VerticalAlignment="Top" Click="TriggerSlewAdjust_Click" IsChecked="False" ToolTip="Subtracts 0.002 s from each integer exposure time."/>
+            <CheckBox x:Name="EfficientOrder" Content="Order filters to reduce down time" HorizontalAlignment="Left" Margin="0,29,0,0" VerticalAlignment="Top" Click="EfficientOrder_Click" ToolTip="Orders the filters to reduce time between exposures."/>
         </Grid>
         <Separator HorizontalAlignment="Left" Height="12" Margin="330,88,0,0" VerticalAlignment="Top" Width="425"/>
-        <Grid Margin="330,163,45,420">
+        <Grid Margin="330,163,45,517">
             <Separator HorizontalAlignment="Left" Height="12" Margin="0,5,0,0" VerticalAlignment="Top" Width="425"/>
             <Separator HorizontalAlignment="Left" Height="12" Margin="0" VerticalAlignment="Top" Width="425"/>
             <Separator HorizontalAlignment="Left" Height="12" Margin="0,143,0,-138" VerticalAlignment="Top" Width="425"/>
             <Separator HorizontalAlignment="Left" Height="12" Margin="0,138,0,-133" VerticalAlignment="Top" Width="425"/>
         </Grid>
         <Separator HorizontalAlignment="Left" Height="10" Margin="10,394,0,0" VerticalAlignment="Top" Width="745"/>
+        <Grid x:Name="ViewerPane" HorizontalAlignment="Left" Height="281" Margin="10,409,0,0" VerticalAlignment="Top" Width="250"/>
+        <Grid Margin="285,409,334,10">
+            <Grid Margin="0,50">
+                <Ellipse HorizontalAlignment="Left" Height="181" Stroke="Black" VerticalAlignment="Top" Width="181"/>
+                <Rectangle HorizontalAlignment="Left" Height="42" Margin="70,9,0,0" Stroke="Black" VerticalAlignment="Top" Width="42"/>
+                <TextBlock x:Name="F0" HorizontalAlignment="Left" Margin="70,20,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F1" HorizontalAlignment="Left" Margin="120,39,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F2" HorizontalAlignment="Left" Margin="134,83,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F3" HorizontalAlignment="Left" Margin="120,130,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F4" HorizontalAlignment="Left" Margin="70,154,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F5" HorizontalAlignment="Left" Margin="19,130,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F6" HorizontalAlignment="Left" Margin="5,83,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F7" HorizontalAlignment="Left" Margin="19,39,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <Separator HorizontalAlignment="Left" Height="12" Margin="59,88,0,0" VerticalAlignment="Top" Width="65" RenderTransformOrigin="0.5,0.5">
+                    <Separator.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform/>
+                            <SkewTransform/>
+                            <RotateTransform Angle="0"/>
+                            <TranslateTransform/>
+                        </TransformGroup>
+                    </Separator.RenderTransform>
+                </Separator>
+                <Separator HorizontalAlignment="Left" Height="12" Margin="59,88,0,0" VerticalAlignment="Top" Width="65" RenderTransformOrigin="0.5,0.5">
+                    <Separator.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform/>
+                            <SkewTransform/>
+                            <RotateTransform Angle="-90"/>
+                            <TranslateTransform/>
+                        </TransformGroup>
+                    </Separator.RenderTransform>
+                </Separator>
+            </Grid>
+        </Grid>
+        <Grid Margin="486,409,45,10">
+            <Rectangle HorizontalAlignment="Left" Height="281" Stroke="Black" VerticalAlignment="Top" Width="269"/>
+            <Label Content="Current:" HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top"/>
+            <Label Content="Previous:" HorizontalAlignment="Left" Margin="10,41,0,0" VerticalAlignment="Top"/>
+            <TextBlock x:Name="CurrentStatus" HorizontalAlignment="Left" Margin="72,15,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="187" ToolTip="The current filter position."/>
+            <TextBlock x:Name="PreviousStatus" HorizontalAlignment="Left" Margin="72,46,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="187" ToolTip="The previous filter position."/>
+            <Grid Margin="10,98,10,95">
+                <Label Content="Prev. Exp. Start:" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                <Label Content="Prev. Exp. End:" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top"/>
+                <Label Content="Prev. Exp. Duration:" HorizontalAlignment="Left" Margin="0,62,0,0" VerticalAlignment="Top"/>
+                <TextBlock x:Name="PrevExpSt" HorizontalAlignment="Left" Margin="96,5,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="153" ToolTip="The previous frame's exposure start time."/>
+                <TextBlock x:Name="PrevExpEnd" HorizontalAlignment="Left" Margin="96,36,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="153" ToolTip="The previous frame's exposure end time."/>
+                <TextBlock x:Name="PrevExpDur" HorizontalAlignment="Left" Margin="117,67,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="132" ToolTip="The previous frame's exposure duration."/>
+            </Grid>
+            <Grid Margin="10,219,8,5">
+                <Label Content="Run Start Time:" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                <Label Content="Elapsed Run Time:" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top"/>
+                <TextBlock x:Name="RunStartTime" HorizontalAlignment="Left" Margin="96,6,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="153" ToolTip="The time the run started, in UTC time."/>
+                <TextBlock x:Name="ElapsedRunTime" HorizontalAlignment="Left" Margin="108,36,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="143" ToolTip="The elapsed run time at the end of the previous exposure."/>
+            </Grid>
+            <Separator HorizontalAlignment="Left" Height="24" Margin="10,191,0,0" VerticalAlignment="Top" Width="249"/>
+            <Separator HorizontalAlignment="Left" Height="24" Margin="12,67,0,0" VerticalAlignment="Top" Width="249"/>
+        </Grid>
     </Grid>
 </UserControl>

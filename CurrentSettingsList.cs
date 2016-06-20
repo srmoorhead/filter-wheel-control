@@ -193,12 +193,11 @@ namespace FilterWheelControl.SettingsList
         private static bool ValidFilter(object f)
         {
             // Ensure user selected a filter
-            if (f == null)
+            if (f == null || f.ToString() == "")
             {
                 MessageBox.Show("You must select a filter.\nPlease ensure you have selected a filter from the drop down menu.");
                 return false;
             }
-
             return true;
         }
 
@@ -242,12 +241,13 @@ namespace FilterWheelControl.SettingsList
         /// Supports both the acquire_images and preview_images threads
         /// </summary>
         /// <returns>A Tuple with Item1 = int max_index and Item2 = double[] exposure_times and Item3 = string[] filter_types and Item4 = </returns>
-        public static Tuple<int, double[], string[], int> getRunVars()
+        public static Tuple<int, double[], string[], int, int[]> getRunVars()
         {
             int max_index;
             double[] exposure_times;
             string[] filter_types;
             double fNumPad;
+            int[] exposure_groups;
             
             lock (CURRENT_SETTINGS_LOCK)
             {
@@ -256,15 +256,17 @@ namespace FilterWheelControl.SettingsList
                 max_index = total_num_frames - 1;
                 exposure_times = new double[total_num_frames];
                 filter_types = new string[total_num_frames];
+                exposure_groups = new int[_FILTER_SETTINGS.Count];
                 fNumPad = 0;
 
                 int index = 0;
-                for (int frame = 0; frame < _FILTER_SETTINGS.Count; frame++)
+                for (int filter = 0; filter < _FILTER_SETTINGS.Count; filter++)
                 {
-                    for (int exposure = 0; exposure < _FILTER_SETTINGS[frame].NumExposures; exposure++)
+                    exposure_groups[filter] = _FILTER_SETTINGS[filter].NumExposures;
+                    for (int exposure = 0; exposure < _FILTER_SETTINGS[filter].NumExposures; exposure++)
                     {
-                        exposure_times[index] = _FILTER_SETTINGS[frame].DisplayTime * 1000.0; // Convert from s to ms
-                        filter_types[index] = _FILTER_SETTINGS[frame].FilterType;
+                        exposure_times[index] = _FILTER_SETTINGS[filter].DisplayTime * 1000.0; // Convert from s to ms
+                        filter_types[index] = _FILTER_SETTINGS[filter].FilterType;
                         fNumPad += exposure_times[index];
                         index++;
                     }
@@ -274,7 +276,7 @@ namespace FilterWheelControl.SettingsList
             fNumPad = MS_IN_12_HRS / fNumPad; // num cycles possible in 12 hours
             fNumPad = Math.Ceiling(Math.Log10(fNumPad *= (max_index + 1))); // num places to have in file numbering
 
-            return new Tuple<int, double[], string[], int>(max_index, exposure_times, filter_types, Convert.ToInt16(fNumPad));
+            return new Tuple<int, double[], string[], int, int[]>(max_index, exposure_times, filter_types, Convert.ToInt16(fNumPad), exposure_groups);
         }
 
         /// <summary>

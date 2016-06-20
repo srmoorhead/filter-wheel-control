@@ -22,6 +22,7 @@ namespace FilterWheelControl.ImageCapturing
         public static volatile bool _STOP = true;
         public static volatile bool _IS_RUNNING = false;
         public static volatile bool _IS_ACQUIRING = false;
+        public static volatile bool _TRANSITIONING = false;
         
         private static readonly int MAIN_VIEW = 0; // the primary view in which captured images are displayed
         private static readonly int CONCURRENT = 0; // denotes the case in which concurrent capturing halts acquisition
@@ -42,7 +43,7 @@ namespace FilterWheelControl.ImageCapturing
             if (_IS_RUNNING)
                 return;
 
-            Tuple<ILightFieldApplication, ControlPanel> arguments = (Tuple<ILightFieldApplication, ControlPanel>)args;
+            Tuple<ILightFieldApplication, ControlPanel, IDisplayViewerControl> arguments = (Tuple<ILightFieldApplication, ControlPanel, IDisplayViewerControl>)args;
             if (_IS_ACQUIRING)
                 transitionToRun(arguments.Item2);
             
@@ -50,7 +51,7 @@ namespace FilterWheelControl.ImageCapturing
             _IS_RUNNING = true;
             
             // Gather run variables
-            Tuple<int, double[], string[], int> runVars = CurrentSettingsList.getRunVars();
+            Tuple<int, double[], string[], int, int[]> runVars = CurrentSettingsList.getRunVars();
             int max_index = runVars.Item1;
             double[] exposure_times = runVars.Item2;
             string[] filters = runVars.Item3;
@@ -58,31 +59,56 @@ namespace FilterWheelControl.ImageCapturing
             // Set up the first exposure
             Thread rotate = new Thread(WheelInteraction.RotateWheelToFilter);
             int current_index = 0;
-            rotate.Start(filters[current_index]);
+            ControlPanel panel = arguments.Item2;
+            bool wait;
+            if (wait = WheelInteraction.MustRotate(filters[current_index]))
+            {
+                Application.Current.Dispatcher.BeginInvoke(new Action(panel.updateFWInstrumentRotate));
+                rotate.Start(filters[current_index]);
+            }
 
             IExperiment exp = arguments.Item1.Experiment;
             exp.SetValue(CameraSettings.ShutterTimingExposureTime, exposure_times[current_index]);
 
             // Capture display functionality
-            IDisplayViewer view = arguments.Item1.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, MAIN_VIEW);
+            IDisplayViewer view1 = arguments.Item1.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, MAIN_VIEW);
+            IDisplayViewer view2 = arguments.Item3.DisplayViewer;
             IImageDataSet frame;
 
-            rotate.Join();
+            // Display status on instrument panel
+            int fIndex = 0;
+            int subFIndex = 1;
+            int[] consecutives = runVars.Item5;
+            string outline = "{0}\t|  {1}\t|  {2} of {3}";
+            String currStat = String.Format(outline, filters[current_index], exposure_times[current_index] / 1000, subFIndex, consecutives[fIndex]);
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.CurrentStatus.Text = currStat));
+
+            if (wait)
+            {
+                rotate.Join();
+                Application.Current.Dispatcher.BeginInvoke(new Action(panel.updateFWInstrumentOrder));
+            }
 
             ////////////////////////////////
             ////  Begin the capture loop ///
             ////////////////////////////////
-
+            
+            DateTime elapsedTime;
+            DateTime startTime = DateTime.Now;
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.RunStartTime.Text = startTime.ToString("HH:mm:ss.ffff")));
             while (!_STOP)
             {
                 // Capture frame
                 if (exp.IsReadyToRun && !exp.IsRunning)
+                {
+                    elapsedTime = DateTime.Now;
                     frame = exp.Capture(1);
+                }
                 else
                 {
                     // Stop acquisition
                     exp.Stop();
-                    HaltAcquisition(arguments.Item2, CONCURRENT);
+                    HaltAcquisition(panel, CONCURRENT);
                     return;
                 }
 
@@ -91,19 +117,51 @@ namespace FilterWheelControl.ImageCapturing
                     // Set up the next exposure
                     current_index = current_index == max_index ? 0 : current_index + 1;
 
-                    rotate = new Thread(WheelInteraction.RotateWheelToFilter);
-                    rotate.Start(filters[current_index]);
+                    if (wait = WheelInteraction.MustRotate(filters[current_index]))
+                    {
+                        rotate = new Thread(WheelInteraction.RotateWheelToFilter);
+                        Application.Current.Dispatcher.BeginInvoke(new Action(panel.updateFWInstrumentRotate));
+                        rotate.Start(filters[current_index]);
+                    }
 
-                    displayFrameInView(frame, view);
+                    // Display the frame and update the instrument panel
+                    displayFrame(frame, view1, view2);
+                    
+                    // Update the instrument panel
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.updatePanelMetaData(frame.GetFrameMetaData(0), elapsedTime, (TimeSpan)(DateTime.Now - startTime))));
+                    if (subFIndex == consecutives[fIndex])
+                    {
+                        subFIndex = 1;
+                        fIndex = fIndex == consecutives.Count() - 1 ? 0 : fIndex + 1;
+                    }
+                    else
+                        subFIndex++;
+                    currStat = String.Format(outline, filters[current_index], exposure_times[current_index] / 1000, subFIndex, consecutives[fIndex]);
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.updateCurrentPreviousStatus(currStat)));
 
+                    // Set the new exposure time
                     exp.SetValue(CameraSettings.ShutterTimingExposureTime, exposure_times[current_index]);
 
-                    rotate.Join();
+                    if (wait)
+                    {
+                        rotate.Join();
+                        Application.Current.Dispatcher.BeginInvoke(new Action(panel.updateFWInstrumentOrder));
+                    }
                 }
                 else
-                    displayFrameInView(frame, view);
+                {
+                    // Display the final frame in both views
+                    Tuple<IImageDataSet, IDisplayViewer> disp1Args = new Tuple<IImageDataSet, IDisplayViewer>(frame, view1);
+                    Tuple<IImageDataSet, IDisplayViewer> disp2Args = new Tuple<IImageDataSet, IDisplayViewer>(frame, view2);
+                    displayFrameInView(disp1Args);
+                    displayFrameInView(disp2Args);
+
+                    // Update the instrument panel
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.updatePanelMetaData(frame.GetFrameMetaData(0), elapsedTime, (TimeSpan)(elapsedTime - startTime))));
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.updateCurrentPreviousStatus("")));
+                }
             }
-            wrapUp(arguments.Item2);
+            wrapUp(panel, arguments.Item3);
         }
 
         #endregion // Run
@@ -121,7 +179,7 @@ namespace FilterWheelControl.ImageCapturing
             if (_IS_ACQUIRING)
                 return;
 
-            Tuple<ILightFieldApplication, ControlPanel> arguments = (Tuple<ILightFieldApplication, ControlPanel>)args;
+            Tuple<ILightFieldApplication, ControlPanel, IDisplayViewerControl> arguments = (Tuple<ILightFieldApplication, ControlPanel, IDisplayViewerControl>)args;
             if (_IS_RUNNING)
                 transitionToAcquire(arguments.Item2);
             
@@ -129,7 +187,7 @@ namespace FilterWheelControl.ImageCapturing
             _IS_ACQUIRING = true;
 
             // Gather run variables
-            Tuple<int, double[], string[], int> runVars = CurrentSettingsList.getRunVars();
+            Tuple<int, double[], string[], int, int[]> runVars = CurrentSettingsList.getRunVars();
 
             // Check that the user will complete a full filter sequence
             int max_index = runVars.Item1;
@@ -145,34 +203,58 @@ namespace FilterWheelControl.ImageCapturing
             int current_index = 0;
             string[] filters = runVars.Item3;
             Thread rotate = new Thread(WheelInteraction.RotateWheelToFilter);
-            rotate.Start(filters[current_index]);
+            ControlPanel panel = arguments.Item2;
+            bool wait;
+            if (wait = WheelInteraction.MustRotate(filters[current_index]))
+            {
+                Application.Current.Dispatcher.BeginInvoke(new Action(panel.updateFWInstrumentRotate));
+                rotate.Start(filters[current_index]);
+            }
 
+            // Get the views
             double[] exposure_times = runVars.Item2;
             exp.SetValue(CameraSettings.ShutterTimingExposureTime, exposure_times[current_index]);
-            IDisplayViewer view = (arguments.Item1.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, MAIN_VIEW));
+            IDisplayViewer view1 = (arguments.Item1.DisplayManager.GetDisplay(DisplayLocation.ExperimentWorkspace, MAIN_VIEW));
+            IDisplayViewer view2 = arguments.Item3.DisplayViewer;
+
+            // Set the current status on the instrument panel
+            int frame_num = 1;
+            int fIndex = 0;
+            int subFIndex = 1;
+            int[] consecutives = runVars.Item5;
+            string outline = "{0}\t|  {1}\t|  {2} of {3}";
+            String currStat = String.Format(outline, filters[current_index], exposure_times[current_index] / 1000, subFIndex, consecutives[fIndex], frame_num);
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.CurrentStatus.Text = currStat));
 
             int padVal = Math.Min(runVars.Item4, Convert.ToInt16(Math.Ceiling(Math.Log10(frames_to_store))));
 
-            rotate.Join();
+            if (wait)
+            {
+                rotate.Join();
+                Application.Current.Dispatcher.BeginInvoke(new Action(panel.updateFWInstrumentOrder));
+            }
 
             ////////////////////////////////
             ////  Begin the capture loop ///
             ////////////////////////////////
 
-            int frame_num = 1;
+            DateTime elapsedTime;
+            DateTime startTime = DateTime.Now;
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.RunStartTime.Text = startTime.ToString("HH:mm:ss.f")));
             while (!_STOP && (frame_num <= frames_to_store))
             {
                 // Capture frame
                 IImageDataSet frame;
                 if (exp.IsReadyToRun && !exp.IsRunning)
                 {
+                    elapsedTime = DateTime.Now;
                     frame = exp.Capture(1);
                 }
                 else
                 {
                     // Stop acquisition
                     exp.Stop();
-                    HaltAcquisition(arguments.Item2, CONCURRENT);
+                    HaltAcquisition(panel, CONCURRENT);
                     return;
                 }
 
@@ -180,22 +262,42 @@ namespace FilterWheelControl.ImageCapturing
                 {
                     // Set up the next frame
                     current_index = current_index = current_index == max_index ? 0 : current_index + 1;
-                    rotate = new Thread(WheelInteraction.RotateWheelToFilter);
-                    rotate.Start(filters[current_index]);
+                    if (wait = WheelInteraction.MustRotate(filters[current_index]))
+                    {
+                        rotate = new Thread(WheelInteraction.RotateWheelToFilter);
+                        Application.Current.Dispatcher.BeginInvoke(new Action(panel.updateFWInstrumentRotate));
+                        rotate.Start(filters[current_index]);
+                    }
 
-                    // Export the current frame as a FITS file and display it
+                    // Export the current frame as a FITS file and display it, update instrument panel
                     if (!FileHandling.exportFITSFrame(frame_num, frame, arguments.Item1, padVal))
                     {
                         // there has been an export error
                         exp.Stop();
-                        HaltAcquisition(arguments.Item2, EXPORT);
+                        HaltAcquisition(panel, EXPORT);
                     }
-                    displayFrameInView(frame, view);
+                    displayFrame(frame, view1, view2);
+                    
+                    // Update the instrument panel
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.updatePanelMetaData(frame.GetFrameMetaData(0), elapsedTime, (TimeSpan)(elapsedTime - startTime))));
+                    if (subFIndex == consecutives[fIndex])
+                    {
+                        subFIndex = 1;
+                        fIndex = fIndex == consecutives.Count() - 1 ? 0 : fIndex + 1;
+                    }
+                    else
+                        subFIndex++;
+                    frame_num++;
+                    currStat = String.Format(outline, filters[current_index], exposure_times[current_index] / 1000, subFIndex, consecutives[fIndex], frame_num);
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.updateCurrentPreviousStatus(currStat)));
 
                     // Finish set up for next frame
                     exp.SetValue(CameraSettings.ShutterTimingExposureTime, exposure_times[current_index]);
-                    frame_num++;
-                    rotate.Join();
+                    if (wait)
+                    {
+                        rotate.Join();
+                        Application.Current.Dispatcher.BeginInvoke(new Action(panel.updateFWInstrumentOrder));
+                    }
                 }
                 else
                 {
@@ -204,14 +306,22 @@ namespace FilterWheelControl.ImageCapturing
                     {
                         // there has been an export error
                         exp.Stop();
-                        HaltAcquisition(arguments.Item2, EXPORT);
+                        HaltAcquisition(panel, EXPORT);
                     }
-                    
-                    // Display the last frame
-                    displayFrameInView(frame, view);
+
+                    // Display the final frame in both views
+                    Tuple<IImageDataSet, IDisplayViewer> disp1Args = new Tuple<IImageDataSet, IDisplayViewer>(frame, view1);
+                    Tuple<IImageDataSet, IDisplayViewer> disp2Args = new Tuple<IImageDataSet, IDisplayViewer>(frame, view2);
+                    displayFrameInView(disp1Args);
+                    displayFrameInView(disp2Args);
+
+                    // Update the instrument panel
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.updatePanelMetaData(frame.GetFrameMetaData(0), elapsedTime, (TimeSpan)(elapsedTime - startTime))));
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.updateCurrentPreviousStatus("")));
                 }
             }
-            wrapUp(arguments.Item2);
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => panel.updateCurrentPreviousStatus("")));
+            wrapUp(panel, arguments.Item3);
         }
 
         /// <summary>
@@ -240,6 +350,7 @@ namespace FilterWheelControl.ImageCapturing
         /// <param name="p">The current ControlPanel object</param>
         private static void transitionToRun(ControlPanel p)
         {
+            _TRANSITIONING = true;
             _STOP = true;
             
             // Flash the Run button until Acquiring is halted
@@ -254,6 +365,7 @@ namespace FilterWheelControl.ImageCapturing
             // Set the run button to Green and the Acquire button to Clear to reflect Running
             Application.Current.Dispatcher.Invoke(new Action(p.setRunGreen));
             Application.Current.Dispatcher.Invoke(new Action(p.setAcquireClear));
+            _TRANSITIONING = false;
         }
 
         /// <summary>
@@ -263,6 +375,7 @@ namespace FilterWheelControl.ImageCapturing
         /// <param name="p">The current ControlPanel object</param>
         private static void transitionToAcquire(ControlPanel p)
         {
+            _TRANSITIONING = true;
             _STOP = true;
 
             // Flash the Acquire button until Running is halted
@@ -277,6 +390,7 @@ namespace FilterWheelControl.ImageCapturing
             // Set the Acquire button to Green and the Run button to Clear to reflect Acquiring
             Application.Current.Dispatcher.Invoke(new Action(p.setAcquireGreen));
             Application.Current.Dispatcher.Invoke(new Action(p.setRunClear));
+            _TRANSITIONING = false;
         }
 
         #endregion // Transitions
@@ -284,13 +398,33 @@ namespace FilterWheelControl.ImageCapturing
         #region Display
 
         /// <summary>
+        /// Asynchronously displays a frame in two views
+        /// </summary>
+        /// <param name="frame">the IImageDataSet to display</param>
+        /// <param name="view1">the first IDisplayViewer</param>
+        /// <param name="view2">the second IDisplayViewer</param>
+        private static void displayFrame(IImageDataSet frame, IDisplayViewer view1, IDisplayViewer view2)
+        {
+            Thread disp1 = new Thread(displayFrameInView);
+            Thread disp2 = new Thread(displayFrameInView);
+            Tuple<IImageDataSet, IDisplayViewer> disp1Args = new Tuple<IImageDataSet, IDisplayViewer>(frame, view1);
+            Tuple<IImageDataSet, IDisplayViewer> disp2Args = new Tuple<IImageDataSet, IDisplayViewer>(frame, view2);
+            disp1.Start(disp1Args);
+            disp2.Start(disp2Args);
+        }
+
+        /// <summary>
         /// Given a frame and a view object, displays the frame in the view
         /// Maintains most view window settings
         /// </summary>
         /// <param name="frame">An IImageDataSet object to be displayed</param>
         /// <param name="view">The IDisplayViewer object in which to display the frame</param>
-        private static void displayFrameInView(IImageDataSet frame, IDisplayViewer view)
+        private static void displayFrameInView(object args)
         {
+            Tuple<IImageDataSet, IDisplayViewer> arguments = (Tuple<IImageDataSet, IDisplayViewer>)args;
+            IDisplayViewer view = arguments.Item2;
+            IImageDataSet frame = arguments.Item1;
+            
             object selectedRegion = null;
             object selectedPosition = null;
             
@@ -298,16 +432,14 @@ namespace FilterWheelControl.ImageCapturing
                 selectedRegion = view.DataSelection;
             if (view.CursorPosition != null)
                 selectedPosition = view.CursorPosition;
-
             double zoom = view.Zoom;
 
             view.Display("Live Multi-Filter Data", frame);
-
+            
             if (selectedRegion != null)
                 view.DataSelection = (System.Windows.Rect)selectedRegion;
             if (selectedPosition != null)
                 view.CursorPosition = (Nullable<System.Windows.Point>)selectedPosition;
-            
             view.Zoom = zoom;
         }
 
@@ -333,11 +465,13 @@ namespace FilterWheelControl.ImageCapturing
         /// <summary>
         /// Wraps up the capturing.  Resets bool vals and the UI.
         /// </summary>
-        private static void wrapUp(ControlPanel panel)
+        private static void wrapUp(ControlPanel panel, IDisplayViewerControl viewer)
         {
             _IS_RUNNING = false;
             _IS_ACQUIRING = false;
             Application.Current.Dispatcher.BeginInvoke(new Action(panel.ResetUI));
+            viewer.DisplayViewer.Clear();
+            viewer.DisplayViewer.Add(viewer.DisplayViewer.LiveDisplaySource);
         }
 
         #endregion // Halting and Wrap Up
