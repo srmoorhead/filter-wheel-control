@@ -5,6 +5,7 @@ using System.Text;
 using PrincetonInstruments.LightField.AddIns;
 using System.Windows;
 using System.IO;
+using System.Threading;
 
 namespace FilterWheelControl.FileFunctions
 {
@@ -30,14 +31,10 @@ namespace FilterWheelControl.FileFunctions
 
             // Ensure the output file name doesn't conflict with an existing file
             string[] nameInfo = retrieveFileNameInfo(exp);
-            string baseFile = nameInfo[DIRECTORY_INDEX] + "\\" + nameInfo[FILENAME_INDEX] + "-Frame-" + fnum.ToString().PadLeft(padSize, '0'); ;
-            string exportLoc =  baseFile + FITS_EXTENSION;
-            if (File.Exists(exportLoc))
-            {
-                MessageBox.Show("With the given file name settings, you will be overwriting existing data.\nPlease change the directory or filename, or delete the existing files, and try again.\n\nThe current export location is: " + exportLoc, "Export Error - Pre-Existing File");
+            string baseFile;
+            if ((baseFile = createFileName(nameInfo, fnum, padSize)) == "ERROR")
                 return false;
-            }
-            
+
             // Save the frame to a temporary .spe file
             IFileManager filemgr = app.FileManager;
             ImageDataFormat format = (ImageDataFormat)exp.GetValue(CameraSettings.AcquisitionPixelFormat);
@@ -47,28 +44,96 @@ namespace FilterWheelControl.FileFunctions
             buildTempFile(format, regions, frame, tempFileName, filemgr);
             
             // Build export settings object
-            IFitsExportSettings settings = (IFitsExportSettings)filemgr.CreateExportSettings(ExportFileType.Fits);
-            settings.IncludeAllExperimentInformation = true;
-
-            settings.CustomOutputPath = nameInfo[DIRECTORY_INDEX];
-            
-            settings.OutputPathOption = ExportOutputPathOption.CustomPath;
-            settings.OutputMode = ExportOutputMode.OneFilePerRoiPerFrame;
+            IFitsExportSettings settings = generateExportSettings(nameInfo, filemgr);
 
             // Validate the output to ensure no errors
-            
-            if(validateOutput(settings, tempFileName))
+            return writeFile(settings, tempFileName, filemgr);
+        }
+
+        /// <summary>
+        /// Validates the output and exports the file
+        /// </summary>
+        /// <param name="settings">The IFitsExportSettings pertaining to this file</param>
+        /// <param name="name">The name of the file after export</param>
+        /// <param name="filemgr">The IFileManager object handling exporting</param>
+        /// <returns>true if the export was a success, false otherwise</returns>
+        private static bool writeFile(IFitsExportSettings settings, string name, IFileManager filemgr)
+        {
+            if (validateOutput(settings, name))
             {
                 // Export the file
-                filemgr.Export((IExportSettings)settings, tempFileName);
+                filemgr.Export((IExportSettings)settings, name);
 
                 // Delete the temp file
-                File.Delete(tempFileName);
-                
+                try
+                {
+                    File.Delete(name);
+                }
+                catch (IOException)
+                {
+                    try
+                    {
+                        Thread.Sleep(250);
+                        File.Delete(name);
+                    }
+                    catch (IOException)
+                    {
+                        return false;
+                    }
+                }
+
                 return true;
             }
             else
                 return false;
+        }
+
+        /// <summary>
+        /// Builds the IFitsExportSettings object.
+        /// IncludeAllExperimentInformation is set to true
+        /// OutputPathOption is set to ExportOutputPathOption.CustomPath
+        /// OutputMode is set to ExportOutputMode.OneFilePerRoiPerFrame
+        /// CustomOutputPath is set to the directory the user specified
+        /// </summary>
+        /// <param name="nameInfo">An array containing the directory and the base file name</param>
+        /// <param name="filemgr">The IFileManager object to use for exporting</param>
+        /// <returns>The IFitsExportSettings generated with the given input</returns>
+        private static IFitsExportSettings generateExportSettings(string[] nameInfo, IFileManager filemgr)
+        {
+            IFitsExportSettings settings = (IFitsExportSettings)filemgr.CreateExportSettings(ExportFileType.Fits);
+            settings.IncludeAllExperimentInformation = true;
+            settings.CustomOutputPath = nameInfo[DIRECTORY_INDEX];
+            settings.OutputPathOption = ExportOutputPathOption.CustomPath;
+            settings.OutputMode = ExportOutputMode.OneFilePerRoiPerFrame;
+            return settings;
+        }
+
+        /// <summary>
+        /// Generate the filename for the exported file.
+        /// </summary>
+        /// <param name="nameInfo">An array containing the directory and the base file name</param>
+        /// <param name="fnum">The frame number</param>
+        /// <param name="padSize">The amount of zero padding to include before the frame number</param>
+        /// <returns>The updated baseFileName</returns>
+        private static string createFileName(string[] nameInfo, int fnum, int padSize)
+        {
+            string baseFile = nameInfo[DIRECTORY_INDEX] + "\\" + nameInfo[FILENAME_INDEX] + "-Frame-" + fnum.ToString().PadLeft(padSize, '0'); ;
+            string exportLoc = baseFile + FITS_EXTENSION;
+            bool edited = false;
+            string append = "";
+            while (File.Exists(exportLoc))
+            {
+                append += "+";
+                exportLoc = baseFile + append + FITS_EXTENSION;
+                edited = true;
+            }
+            if (edited && fnum == 1)
+            {
+                MessageBoxResult useNewName = MessageBox.Show("A file already exists with the name " + baseFile + FITS_EXTENSION + "\n\nYour data will be saved as: " + exportLoc + "\n\nIs this okay?", "Export Error - Pre-Existing File", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (useNewName == MessageBoxResult.No)
+                    return "ERROR";
+            }
+            return baseFile + append;
         }
 
         /// <summary>
@@ -108,6 +173,8 @@ namespace FilterWheelControl.FileFunctions
             return separated;
         }
 
+        #region Generate File Name
+
         /// <summary>
         /// Returns the string representing the user-specified file name as entered in the LightField settings pane.
         /// Note that this DOES NOT include the file type (i.e. .spe, .fits, etc.).
@@ -119,17 +186,78 @@ namespace FilterWheelControl.FileFunctions
             string directory = exp.GetValue(ExperimentSettings.FileNameGenerationDirectory).ToString();
             string base_name = exp.GetValue(ExperimentSettings.FileNameGenerationBaseFileName).ToString();
 
-            // TODO:  Finish the date and time and increment handling
-            /*
-            DateTime thisDay = DateTime.Today;
-            if ((bool)exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate))
+            string space = " ";
+            if (exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate) != null)
             {
-                base_name += ' ' + thisDay.Date.ToString();
+                if ((bool)exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate))
+                {
+                    if ((FileFormatLocation)exp.GetValue(ExperimentSettings.FileNameGenerationFileFormatLocation) == FileFormatLocation.Prefix)
+                        base_name = getFormattedDate((DateFormat)exp.GetValue(ExperimentSettings.FileNameGenerationDateFormat)) + space + base_name;
+                    else
+                        base_name += space + getFormattedDate((DateFormat)exp.GetValue(ExperimentSettings.FileNameGenerationDateFormat));
+                }
             }
-            */
 
+            if (exp.GetValue(ExperimentSettings.FileNameGenerationAttachTime) != null)
+            {
+                if ((bool)exp.GetValue(ExperimentSettings.FileNameGenerationAttachTime))
+                {
+                    if ((FileFormatLocation)exp.GetValue(ExperimentSettings.FileNameGenerationFileFormatLocation) == FileFormatLocation.Prefix)
+                        base_name = getFormattedTime((TimeFormat)exp.GetValue(ExperimentSettings.FileNameGenerationTimeFormat)) + space + base_name;
+                    else
+                        base_name += space + getFormattedTime((TimeFormat)exp.GetValue(ExperimentSettings.FileNameGenerationTimeFormat));
+                }
+            }
             return new string[2]{directory, base_name};
         }
+
+        /// <summary>
+        /// Given a time format, returns the current time in that format
+        /// </summary>
+        /// <param name="format">The TimeFormat object representing the desired format</param>
+        /// <returns>The current time in the given format</returns>
+        private static string getFormattedTime(TimeFormat format)
+        {
+            DateTime now = DateTime.Now;
+
+            switch (format)
+            {
+                case TimeFormat.hh_mm_ss_24hr:
+                    return now.ToString("HH_mm_ss");
+                default:
+                    return now.ToString("hh_mm_ss_tt", System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        /// <summary>
+        /// Given a DateFormat, returns the date formatted in that manner.
+        /// </summary>
+        /// <param name="format">A DateFormat object representing how the date should be formatted</param>
+        /// <returns>A string of the date represented in the given format</returns>
+        private static string getFormattedDate(DateFormat format)
+        {
+            DateTime today = DateTime.Today;
+                
+            switch (format)
+            {
+                case DateFormat.dd_mm_yyyy:
+                    return today.ToString("dd MM yyyy");
+                case DateFormat.dd_Month_yyyy: 
+                    return today.ToString("dd MMMM yyyy");
+                case DateFormat.mm_dd_yyyy:
+                    return today.ToString("MM dd yyyy");
+                case DateFormat.Month_dd_yyyy:
+                    return today.ToString("MMMM dd yyyy");
+                case DateFormat.yyyy_mm_dd:
+                    return today.ToString("yyyy MM dd");
+                case DateFormat.yyyy_Month_dd:
+                    return today.ToString("yyyy MMMM dd");
+                default:
+                    return today.ToString("yyyy MM dd");
+            }
+        }
+
+        #endregion // Generate File Name
 
         #region Validate Fits Export
 

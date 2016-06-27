@@ -791,10 +791,12 @@ namespace FilterWheelControl.ControlPanelFunctions
         /// Updates the Instrument Panel to show the latest frame metadata information
         /// </summary>
         /// <param name="m">The metadata object holding the new information</param>
-        public void updatePanelMetaData(Metadata m, DateTime expStart, TimeSpan elapsed)
+        public void updatePanelMetaData(Metadata m, DateTime captureCalled, TimeSpan elapsed)
         {
-            this.PrevExpSt.Text = ((DateTime)(expStart + m.ExposureStarted)).ToString("HH:mm:ss.ffff");
-            this.PrevExpEnd.Text = ((DateTime)(expStart + m.ExposureEnded)).ToString("HH:mm:ss.ffff");
+            this.PrevExpSt.Text = ((DateTime)(captureCalled + m.ExposureStarted)).ToString("HH:mm:ss.ffff"); // absolute time w.r.t. the computer clock
+            this.PrevExpEnd.Text = ((DateTime)(captureCalled + m.ExposureEnded)).ToString("HH:mm:ss.ffff"); // absolute time w.r.t. the computer clock
+            //this.PrevExpSt.Text = ((TimeSpan)m.ExposureStarted).ToString("c"); // relative time from the start of the Capture method
+            //this.PrevExpEnd.Text = ((TimeSpan)m.ExposureEnded).ToString("c"); // relative time from the start of the Capture method
             this.PrevExpDur.Text = ((TimeSpan)(m.ExposureEnded - m.ExposureStarted)).ToString("c");
             this.ElapsedRunTime.Text = elapsed.ToString("c");
         }
