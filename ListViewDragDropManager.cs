@@ -13,7 +13,7 @@ using System.Windows.Input;
 using WPF.JoshSmith.Adorners;
 using WPF.JoshSmith.Controls.Utilities;
 
-using FilterWheelControl.SettingsList;
+using FilterWheelControl;
 
 namespace WPF.JoshSmith.ServiceProviders.UI
 {
@@ -419,7 +419,7 @@ namespace WPF.JoshSmith.ServiceProviders.UI
                 return;
 
             // Capture list
-            ObservableCollection<Filter> itemsSource = this.listView.ItemsSource as ObservableCollection<Filter>;
+            ObservableCollection<FilterSetting> itemsSource = this.listView.ItemsSource as ObservableCollection<FilterSetting>;
             for (int i = low; i <= hi; i++)
             {
                 itemsSource[i].OrderLocation = i + 1;
