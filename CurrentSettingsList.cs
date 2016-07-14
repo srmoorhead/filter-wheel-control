@@ -5,9 +5,9 @@ using System.Text;
 using System.Windows; // for MessageBox
 using System.Collections.ObjectModel; // for ObservableCollection
 
-namespace FilterWheelControl.SettingsList
+namespace FilterWheelControl
 {
-    public class Filter
+    public class FilterSetting
     {
         public string FilterType { get; set; }
         public double DisplayTime { get; set; }
@@ -15,24 +15,167 @@ namespace FilterWheelControl.SettingsList
         public double SlewAdjustedTime { get; set; }
         public int NumExposures { get; set; }
         public int OrderLocation { get; set; }
+        public FilterSetting Next { get; set; }
     }
     
     public class CurrentSettingsList
     {
-        #region Instance Variables
-
-        private static volatile ObservableCollection<Filter> _FILTER_SETTINGS = new ObservableCollection<Filter>();
-        private static readonly object CURRENT_SETTINGS_LOCK = new object();
+        #region Static Variables
 
         private static readonly double TRIGGER_SLEW_CORRECTION = 0.002; // seconds
         private static readonly double MS_IN_12_HRS = 3600000 * 12; // milliseconds in 12 hours, = 4.32e+7
 
+        #endregion // Static Variables
+
+        #region Instance Variables
+
+        private ObservableCollection<FilterSetting> _filter_settings;
+        private readonly object _current_settings_lock;
+
         #endregion // Instance Variables
 
-        public static ObservableCollection<Filter> FilterSettings
-        { get { return _FILTER_SETTINGS; } }
+        #region Constructors
 
-        #region Add and Edit
+        /// <summary>
+        /// Instantiate a new CurrentSettingsList object and set the initial settings list to be empty
+        /// </summary>
+        public CurrentSettingsList()
+        {
+            this._filter_settings = new ObservableCollection<FilterSetting>();
+            this._current_settings_lock = new object();
+        }
+
+        /// <summary>
+        /// Instantiate a new CurrentSettingsList object and set the initial settings list to a pre-existing list
+        /// </summary>
+        /// <param name="settings">The settings to set as the CurrentSettingsList filter settings</param>
+        public CurrentSettingsList(ObservableCollection<FilterSetting> settings)
+        {
+            this._filter_settings = settings;
+            this._current_settings_lock = new object();
+        }
+
+
+        #endregion // Constructors
+
+        #region Accessors
+
+        /// <summary>
+        /// Accessor for the filter settings ObservableCollection
+        /// </summary>
+        /// <returns>The ObservableCollection holding all of the Filter objects</returns>
+        public ObservableCollection<FilterSetting> GetSettingsCollection() { return _filter_settings; }
+
+        /// <summary>
+        /// Build the file contents of a filter settings file
+        /// </summary>
+        /// <returns>A string holding the contents of the file</returns>
+        public string GenerateFileContent()
+        {
+            string content = "";
+            lock (_current_settings_lock)
+            {
+                foreach (FilterSetting f in _filter_settings)
+                {
+                    content += f.FilterType + '\t' + f.UserInputTime + '\t' + f.NumExposures + "\r\n";
+                }
+            }
+
+            return content;
+        }
+
+        /// <summary>
+        /// Provides the max index, a double[] of exposure times, a string[] of filter types, the time-generated zero padding val, and an array of the filter exposure group sizes from the current FILTER_SETTINGS variable
+        /// Supports both the acquire_images and preview_images threads
+        /// </summary>
+        /// <returns>A Tuple with Item1 = int max_index and Item2 = double[] exposure_times and Item3 = string[] filter_types and Item4 = </returns>
+        public FilterSetting GetCaptureSettings()
+        {
+            lock (_current_settings_lock)
+            {
+                for (int i = 1; i < _filter_settings.Count; i++)
+                {
+                    _filter_settings[i - 1].Next = _filter_settings[i];
+                }
+                _filter_settings[_filter_settings.Count - 1].Next = _filter_settings[0];
+            }
+            return _filter_settings[0];
+        }
+
+        /// <summary>
+        /// Returns the total number of frames to be captured per loop through the Current Settings list
+        /// </summary>
+        /// <returns>Total number of frames per loop</returns>
+        public int FramesPerCycle()
+        {
+            int total_num_frames = 0;
+            lock (_current_settings_lock)
+            {
+                foreach (FilterSetting fs in _filter_settings)
+                {
+                    total_num_frames += fs.NumExposures;
+                }
+            }
+            return total_num_frames;
+        }
+
+        /// <summary>
+        /// Returns the total cycle time in milliseconds for one full settings sequence
+        /// </summary>
+        /// <returns>A double representing the number of milliseconds in one full setting sequence</returns>
+        public double TotalCycleTime()
+        {
+            double time = 0;
+            lock (_current_settings_lock)
+            {
+                foreach (FilterSetting fs in _filter_settings)
+                    time += fs.DisplayTime;
+            }
+            return time;
+        }
+
+        /// <summary>
+        /// Returns the ceiling of log10 of the number of frames possible in 12 hours
+        /// </summary>
+        /// <returns>Ceiling of log10 of the number of frames possible in 12 horus</returns>
+        public int ZeroPaddingVal()
+        {
+            double cycles = MS_IN_12_HRS / TotalCycleTime();
+            return Convert.ToInt32(Math.Ceiling(Math.Log10(cycles * FramesPerCycle())));
+        }
+
+        /// <summary>
+        /// Retrieves all the capture settings.  More efficient than calling each setting accessor individually
+        /// </summary>
+        /// <returns>A Tuple holding the first FilterSetting, the number of frames in a sequence, and the zero pad value</returns>
+        public Tuple<FilterSetting, int, int> GetAllCaptureSettings() 
+        {
+            double time;
+            int frames; 
+
+            lock (_current_settings_lock)
+            {
+                time = _filter_settings[0].DisplayTime;
+                frames = _filter_settings[0].NumExposures;
+
+                for (int i = 1; i < _filter_settings.Count; i++)
+                {
+                    _filter_settings[i - 1].Next = _filter_settings[i];
+                    time += _filter_settings[i].DisplayTime * 1000.0 * _filter_settings[i].NumExposures; // convert to ms
+                    frames += _filter_settings[i].NumExposures;
+                }
+                _filter_settings[_filter_settings.Count - 1].Next = _filter_settings[0];
+            }
+
+            double cycles = MS_IN_12_HRS / time;
+            int padVal = Convert.ToInt32(Math.Ceiling(Math.Log10(cycles * frames)));
+
+            return new Tuple<FilterSetting, int, int>(_filter_settings[0], frames, padVal);
+        }
+
+        #endregion // Accessors
+
+        #region Modifiers
 
         /// <summary>
         /// Adds a Filter with the specified settings to the ObservableCollection _FILTER_SETTINGS
@@ -42,9 +185,9 @@ namespace FilterWheelControl.SettingsList
         /// <param name="frames">A string holding the number of consecutive frames of this exposure time and filter to take</param>
         /// <param name="slewAdjust">True if the times should be adjusted to account for trigger timing slew, false otherwise</param>
         /// <returns>true if the object was added, false otherwise</returns>
-        public static bool Add(object filterType, string time, string frames, bool slewAdjust)
+        public bool Add(object filterType, string time, string frames, bool slewAdjust)
         {
-            // Calculate slew adjusted time if necessary
+            // Calculate slew adjusted time
             double inputTime;
             double slewTime;
             if (ValidInputTime(time))
@@ -57,14 +200,14 @@ namespace FilterWheelControl.SettingsList
             }
             else
                 return false;
-            
+
             // Validate other inputs and add filter
             if (ValidNumFrames(frames) && ValidFilter(filterType))
             {
-                lock (CURRENT_SETTINGS_LOCK)
+                lock (_current_settings_lock)
                 {
-                    int newIndex = _FILTER_SETTINGS.Count + 1;
-                    _FILTER_SETTINGS.Add(new Filter
+                    int newIndex = _filter_settings.Count + 1;
+                    _filter_settings.Add(new FilterSetting
                     {
                         FilterType = filterType.ToString(),
                         DisplayTime = slewAdjust ? slewTime : inputTime,
@@ -89,7 +232,7 @@ namespace FilterWheelControl.SettingsList
         /// <param name="frames">The new number of frames to consecutively capture with these settings</param>
         /// <param name="slewAdjust">True if the times should be adjusted to account for trigger timing slew, false otherwise</param>
         /// <returns>true if the edit occurred, false otherwise</returns>
-        public static bool Edit(Filter toBeChanged, object filterType, string time, string frames, bool slewAdjust)
+        public bool Edit(FilterSetting toBeChanged, object filterType, string time, string frames, bool slewAdjust)
         {
             // Calculate slew adjusted time, if necessary
             double inputTime;
@@ -104,11 +247,11 @@ namespace FilterWheelControl.SettingsList
             }
             else
                 return false;
-            
+
             // Validate other inputs and edit filter
             if (ValidNumFrames(frames) && ValidFilter(filterType))
             {
-                lock (CURRENT_SETTINGS_LOCK)
+                lock (_current_settings_lock)
                 {
                     toBeChanged.FilterType = filterType.ToString();
                     toBeChanged.DisplayTime = slewAdjust ? slewTime : inputTime;
@@ -121,6 +264,35 @@ namespace FilterWheelControl.SettingsList
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Delete the selected items from the FilterSettingsList
+        /// </summary>
+        /// <param name="selected">The selected items to delete</param>
+        public void DeleteSelected(System.Collections.IList selected)
+        {
+            lock (_current_settings_lock)
+            {
+                int numSelected = selected.Count;
+                for (int i = 0; i < numSelected; i++)
+                {
+                    _filter_settings.Remove(((FilterSetting)selected[0]));
+                }
+
+                UpdateLocVals();
+            }
+        }
+
+        /// <summary>
+        /// Update the indices in the list to reflect changes in ordering, additions, or deletions
+        /// </summary>
+        private void UpdateLocVals()
+        {
+            for (int i = 0; i < _filter_settings.Count; i++)
+            {
+                _filter_settings[i].OrderLocation = i + 1;
+            }
         }
 
         #region Validate Inputs
@@ -203,119 +375,6 @@ namespace FilterWheelControl.SettingsList
 
         #endregion // Validate Inputs
 
-        #endregion // Add and Edit
-
-        #region Delete
-
-        public static void DeleteSelected(System.Collections.IList selected)
-        {
-            lock (CURRENT_SETTINGS_LOCK)
-            {
-                int numSelected = selected.Count;
-                for (int i = 0; i < numSelected; i++)
-                {
-                    _FILTER_SETTINGS.Remove(((Filter)selected[0]));
-                }
-
-                UpdateLocVals();
-            }
-        }
-
-        /// <summary>
-        /// Update the indices in the list to reflect changes in ordering, additions, or deletions
-        /// </summary>
-        private static void UpdateLocVals()
-        {
-            for (int i = 0; i < _FILTER_SETTINGS.Count; i++)
-            {
-                _FILTER_SETTINGS[i].OrderLocation = i + 1;
-            }
-        }
-
-        #endregion //Delete
-
-        #region Generate Runtime Variables
-
-        /// <summary>
-        /// Provides the max index, a string[] of filter types, a double[] of exposure times, and the time-generated zero padding val from the current FILTER_SETTINGS variable
-        /// Supports both the acquire_images and preview_images threads
-        /// </summary>
-        /// <returns>A Tuple with Item1 = int max_index and Item2 = double[] exposure_times and Item3 = string[] filter_types and Item4 = </returns>
-        public static Tuple<int, double[], string[], int, int[]> getRunVars()
-        {
-            int max_index;
-            double[] exposure_times;
-            string[] filter_types;
-            double fNumPad;
-            int[] exposure_groups;
-            
-            lock (CURRENT_SETTINGS_LOCK)
-            {
-                int total_num_frames = totalFrames(_FILTER_SETTINGS);
-
-                max_index = total_num_frames - 1;
-                exposure_times = new double[total_num_frames];
-                filter_types = new string[total_num_frames];
-                exposure_groups = new int[_FILTER_SETTINGS.Count];
-                fNumPad = 0;
-
-                int index = 0;
-                for (int filter = 0; filter < _FILTER_SETTINGS.Count; filter++)
-                {
-                    exposure_groups[filter] = _FILTER_SETTINGS[filter].NumExposures;
-                    for (int exposure = 0; exposure < _FILTER_SETTINGS[filter].NumExposures; exposure++)
-                    {
-                        exposure_times[index] = _FILTER_SETTINGS[filter].DisplayTime * 1000.0; // Convert from s to ms
-                        filter_types[index] = _FILTER_SETTINGS[filter].FilterType;
-                        fNumPad += exposure_times[index];
-                        index++;
-                    }
-                }
-            }
-
-            fNumPad = MS_IN_12_HRS / fNumPad; // num cycles possible in 12 hours
-            fNumPad = Math.Ceiling(Math.Log10(fNumPad *= (max_index + 1))); // num places to have in file numbering
-
-            return new Tuple<int, double[], string[], int, int[]>(max_index, exposure_times, filter_types, Convert.ToInt16(fNumPad), exposure_groups);
-        }
-
-        /// <summary>
-        /// Returns the total number of frames to be captured per loop through the Current Settings list
-        /// </summary>
-        /// <param name="settingsList">An ObservableCollection of Filter objects holding the User's desired filter settings</param>
-        /// <returns>Total number of frames per loop</returns>
-        private static int totalFrames(ObservableCollection<Filter> settingsList)
-        {
-            int total_num_frames = 0;
-            for (int i = 0; i < settingsList.Count; i++)
-            {
-                total_num_frames += settingsList[i].NumExposures;
-            }
-            return total_num_frames;
-        }
-
-        #endregion // Generate Runtime Variables
-
-        #region Generate File Content
-
-        /// <summary>
-        /// Build the file contents of a filter settings file
-        /// </summary>
-        /// <returns>A string holding the contents of the file</returns>
-        public static string GenerateFileContent()
-        {
-            string content = "";
-            lock (CURRENT_SETTINGS_LOCK)
-            {
-                foreach (Filter f in FilterSettings)
-                {
-                    content += f.FilterType + '\t' + f.UserInputTime + '\t' + f.NumExposures + "\r\n";
-                }
-            }
-
-            return content;
-        }
-
-        #endregion // Generate File Content
+        #endregion // Modifiers
     }
 }

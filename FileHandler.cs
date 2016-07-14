@@ -7,16 +7,37 @@ using System.Windows;
 using System.IO;
 using System.Threading;
 
-namespace FilterWheelControl.FileFunctions
+namespace FilterWheelControl
 {
-    class FileHandling
-    {
-        #region FITS exporting
+    class FileHandler
+    {   
+        #region Static Variables
 
-        private static readonly int DIRECTORY_INDEX = 0; // the index where the Directory information is stored
-        private static readonly int FILENAME_INDEX = 1; // the index where the filename information is stored
+        private static readonly int DIRECTORY_INDEX = 0;
+        private static readonly int FILENAME_INDEX = 1;
         private static readonly string FITS_EXTENSION = ".fits"; // the file extension for a fits file
         private static readonly string SPE_EXTENSION = ".spe"; // the file extension for an spe file
+
+        #endregion // Static Variables
+
+        #region Instance Variables
+
+        IExperiment _exp;
+        IFileManager _file_mgr;
+
+        #endregion // Instance Variables
+
+        #region Constructors
+
+        public FileHandler(IExperiment e, IFileManager fmgr)
+        {
+            this._exp = e;
+            this._file_mgr = fmgr;
+        }
+
+        #endregion // Constructors
+
+        #region Export Fits Frame
 
         /// <summary>
         /// Given a frame, exports the frame as a FITS file, separating the frame into multiple fits files, one for each ROI.
@@ -24,30 +45,26 @@ namespace FilterWheelControl.FileFunctions
         /// <param name="fnum">The current frame number.  Used to numerically order the frames and avoid overwriting.</param>
         /// <param name="frame">The frame to be saved.</param>
         /// <param name="app">The LightField Application object, used for gathering system settings.</param>
-        public static bool exportFITSFrame(int fnum, IImageDataSet frame, ILightFieldApplication app, int padSize)
+        public bool ExportFITSFrame(IImageDataSet frame, int fnum, int padSize)
         {
-            // Get the experiment object
-            IExperiment exp = app.Experiment;
-
             // Ensure the output file name doesn't conflict with an existing file
-            string[] nameInfo = retrieveFileNameInfo(exp);
+            string[] nameInfo = RetrieveFileNameInfo();
             string baseFile;
-            if ((baseFile = createFileName(nameInfo, fnum, padSize)) == "ERROR")
+            if ((baseFile = CreateFileName(nameInfo, fnum, padSize)) == "ERROR")
                 return false;
 
             // Save the frame to a temporary .spe file
-            IFileManager filemgr = app.FileManager;
-            ImageDataFormat format = (ImageDataFormat)exp.GetValue(CameraSettings.AcquisitionPixelFormat);
-            RegionOfInterest[] regions = exp.SelectedRegions;
+            ImageDataFormat format = (ImageDataFormat)_exp.GetValue(CameraSettings.AcquisitionPixelFormat);
+            RegionOfInterest[] regions = _exp.SelectedRegions;
 
             string tempFileName = baseFile + SPE_EXTENSION;
-            buildTempFile(format, regions, frame, tempFileName, filemgr);
+            BuildTempFile(format, regions, frame, tempFileName);
             
             // Build export settings object
-            IFitsExportSettings settings = generateExportSettings(nameInfo, filemgr);
+            IFitsExportSettings settings = GenerateExportSettings(nameInfo);
 
             // Validate the output to ensure no errors
-            return writeFile(settings, tempFileName, filemgr);
+            return WriteFile(settings, tempFileName, _file_mgr);
         }
 
         /// <summary>
@@ -57,9 +74,9 @@ namespace FilterWheelControl.FileFunctions
         /// <param name="name">The name of the file after export</param>
         /// <param name="filemgr">The IFileManager object handling exporting</param>
         /// <returns>true if the export was a success, false otherwise</returns>
-        private static bool writeFile(IFitsExportSettings settings, string name, IFileManager filemgr)
+        private bool WriteFile(IFitsExportSettings settings, string name, IFileManager filemgr)
         {
-            if (validateOutput(settings, name))
+            if (ValidateOutput(settings, name))
             {
                 // Export the file
                 filemgr.Export((IExportSettings)settings, name);
@@ -71,17 +88,8 @@ namespace FilterWheelControl.FileFunctions
                 }
                 catch (IOException)
                 {
-                    try
-                    {
-                        Thread.Sleep(250);
-                        File.Delete(name);
-                    }
-                    catch (IOException)
-                    {
-                        return false;
-                    }
+                    return false;
                 }
-
                 return true;
             }
             else
@@ -98,9 +106,9 @@ namespace FilterWheelControl.FileFunctions
         /// <param name="nameInfo">An array containing the directory and the base file name</param>
         /// <param name="filemgr">The IFileManager object to use for exporting</param>
         /// <returns>The IFitsExportSettings generated with the given input</returns>
-        private static IFitsExportSettings generateExportSettings(string[] nameInfo, IFileManager filemgr)
+        private IFitsExportSettings GenerateExportSettings(string[] nameInfo)
         {
-            IFitsExportSettings settings = (IFitsExportSettings)filemgr.CreateExportSettings(ExportFileType.Fits);
+            IFitsExportSettings settings = (IFitsExportSettings)_file_mgr.CreateExportSettings(ExportFileType.Fits);
             settings.IncludeAllExperimentInformation = true;
             settings.CustomOutputPath = nameInfo[DIRECTORY_INDEX];
             settings.OutputPathOption = ExportOutputPathOption.CustomPath;
@@ -115,7 +123,7 @@ namespace FilterWheelControl.FileFunctions
         /// <param name="fnum">The frame number</param>
         /// <param name="padSize">The amount of zero padding to include before the frame number</param>
         /// <returns>The updated baseFileName</returns>
-        private static string createFileName(string[] nameInfo, int fnum, int padSize)
+        private string CreateFileName(string[] nameInfo, int fnum, int padSize)
         {
             string baseFile = nameInfo[DIRECTORY_INDEX] + "\\" + nameInfo[FILENAME_INDEX] + "-Frame-" + fnum.ToString().PadLeft(padSize, '0'); ;
             string exportLoc = baseFile + FITS_EXTENSION;
@@ -143,17 +151,17 @@ namespace FilterWheelControl.FileFunctions
         /// <param name="filemgr">The FileManager associated with the LightField Application</param>
         /// <param name="frame">The frame to be saved.</param>
         /// <param name="name">The name of the file to save.</param>
-        private static void buildTempFile(ImageDataFormat format, RegionOfInterest[] regions, IImageDataSet frame, string name, IFileManager filemgr)
+        private void BuildTempFile(ImageDataFormat format, RegionOfInterest[] regions, IImageDataSet frame, string name)
         {
             if (File.Exists(name))
                 File.Delete(name);
 
-            IImageDataSet data = filemgr.CreateFile(name, regions, 1, format);
+            IImageDataSet data = _file_mgr.CreateFile(name, regions, 1, format);
 
             // Copy the data over to the file
             int numROIs = regions.Count();
-            IImageData[] split_frame = separateROIs(frame, numROIs, 0);
-            IImageData[] split_file = separateROIs(data, numROIs, 0);
+            IImageData[] split_frame = SeparateROIs(frame, numROIs, 0);
+            IImageData[] split_file = SeparateROIs(data, numROIs, 0);
             for (int i = 0; i < numROIs; i++)
                 split_file[i].SetData(split_frame[i].GetData());
         }
@@ -165,7 +173,7 @@ namespace FilterWheelControl.FileFunctions
         /// <param name="num_rois">The number of regions of interest in one frame of the IImageDataSet object</param>
         /// <param name="frame">The frame number to separate by region of interest</param>
         /// <returns>IImageData[] with each element a different region of interest from the same frame</returns>
-        private static IImageData[] separateROIs(IImageDataSet exposure, int num_rois, int frame)
+        private IImageData[] SeparateROIs(IImageDataSet exposure, int num_rois, int frame)
         {
             IImageData[] separated = new IImageData[num_rois];
             for (int i = 0; i < num_rois; i++)
@@ -179,33 +187,33 @@ namespace FilterWheelControl.FileFunctions
         /// Returns the string representing the user-specified file name as entered in the LightField settings pane.
         /// Note that this DOES NOT include the file type (i.e. .spe, .fits, etc.).
         /// </summary>
-        /// <param name="exp">The current LightField Experiment</param>
+        /// <param name="_exp">The current LightField Experiment</param>
         /// <returns>The string, including directory, of the file name</returns>
-        private static string[] retrieveFileNameInfo(IExperiment exp)
+        private string[] RetrieveFileNameInfo()
         {
-            string directory = exp.GetValue(ExperimentSettings.FileNameGenerationDirectory).ToString();
-            string base_name = exp.GetValue(ExperimentSettings.FileNameGenerationBaseFileName).ToString();
+            string directory = _exp.GetValue(ExperimentSettings.FileNameGenerationDirectory).ToString();
+            string base_name = _exp.GetValue(ExperimentSettings.FileNameGenerationBaseFileName).ToString();
 
             string space = " ";
-            if (exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate) != null)
+            if (_exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate) != null)
             {
-                if ((bool)exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate))
+                if ((bool)_exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate))
                 {
-                    if ((FileFormatLocation)exp.GetValue(ExperimentSettings.FileNameGenerationFileFormatLocation) == FileFormatLocation.Prefix)
-                        base_name = getFormattedDate((DateFormat)exp.GetValue(ExperimentSettings.FileNameGenerationDateFormat)) + space + base_name;
+                    if ((FileFormatLocation)_exp.GetValue(ExperimentSettings.FileNameGenerationFileFormatLocation) == FileFormatLocation.Prefix)
+                        base_name = GetFormattedDate((DateFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationDateFormat)) + space + base_name;
                     else
-                        base_name += space + getFormattedDate((DateFormat)exp.GetValue(ExperimentSettings.FileNameGenerationDateFormat));
+                        base_name += space + GetFormattedDate((DateFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationDateFormat));
                 }
             }
 
-            if (exp.GetValue(ExperimentSettings.FileNameGenerationAttachTime) != null)
+            if (_exp.GetValue(ExperimentSettings.FileNameGenerationAttachTime) != null)
             {
-                if ((bool)exp.GetValue(ExperimentSettings.FileNameGenerationAttachTime))
+                if ((bool)_exp.GetValue(ExperimentSettings.FileNameGenerationAttachTime))
                 {
-                    if ((FileFormatLocation)exp.GetValue(ExperimentSettings.FileNameGenerationFileFormatLocation) == FileFormatLocation.Prefix)
-                        base_name = getFormattedTime((TimeFormat)exp.GetValue(ExperimentSettings.FileNameGenerationTimeFormat)) + space + base_name;
+                    if ((FileFormatLocation)_exp.GetValue(ExperimentSettings.FileNameGenerationFileFormatLocation) == FileFormatLocation.Prefix)
+                        base_name = GetFormattedTime((TimeFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationTimeFormat)) + space + base_name;
                     else
-                        base_name += space + getFormattedTime((TimeFormat)exp.GetValue(ExperimentSettings.FileNameGenerationTimeFormat));
+                        base_name += space + GetFormattedTime((TimeFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationTimeFormat));
                 }
             }
             return new string[2]{directory, base_name};
@@ -216,7 +224,7 @@ namespace FilterWheelControl.FileFunctions
         /// </summary>
         /// <param name="format">The TimeFormat object representing the desired format</param>
         /// <returns>The current time in the given format</returns>
-        private static string getFormattedTime(TimeFormat format)
+        private string GetFormattedTime(TimeFormat format)
         {
             DateTime now = DateTime.Now;
 
@@ -234,7 +242,7 @@ namespace FilterWheelControl.FileFunctions
         /// </summary>
         /// <param name="format">A DateFormat object representing how the date should be formatted</param>
         /// <returns>A string of the date represented in the given format</returns>
-        private static string getFormattedDate(DateFormat format)
+        private string GetFormattedDate(DateFormat format)
         {
             DateTime today = DateTime.Today;
                 
@@ -267,7 +275,7 @@ namespace FilterWheelControl.FileFunctions
         /// <param name="settings">The IFitsExportSettings to be validated</param>
         /// <param name="fname">The temporary file where the data is currently stored</param>
         /// <returns>false if there are export errors as generated by IFitsExportSettings.Validate(), true otherwise</returns>
-        private static bool validateOutput(IFitsExportSettings settings, string fname)
+        private bool ValidateOutput(IFitsExportSettings settings, string fname)
         {
             List<string> files = new List<string>();
             files.Add(fname);
@@ -275,7 +283,7 @@ namespace FilterWheelControl.FileFunctions
 
             if (export_errors.Count > 0)
             {
-                displayExportErrors(export_errors);
+                DisplayExportErrors(export_errors);
                 return false;
             }
             return true;
@@ -285,7 +293,7 @@ namespace FilterWheelControl.FileFunctions
         /// Displays export errors to the user
         /// </summary>
         /// <param name="export_errors">An IList of type IExportSelectionError - the IList returned by the IFitsExportSettings.Validate() method</param>
-        private static void displayExportErrors(IList<IExportSelectionError> export_errors)
+        private void DisplayExportErrors(IList<IExportSelectionError> export_errors)
         {
             string errors = "There are errors in the export settings.  The errors are:\n";
             foreach (IExportSelectionError e in export_errors)
@@ -298,7 +306,7 @@ namespace FilterWheelControl.FileFunctions
 
         #endregion // Validate Fits Export
 
-        #endregion // FITS Exporting
+        #endregion // Export Fits File
 
         #region CurrentSettings IO
 

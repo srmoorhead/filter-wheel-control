@@ -1,4 +1,4 @@
-﻿<UserControl x:Class="FilterWheelControl.ControlPanelFunctions.ControlPanel"
+﻿<UserControl x:Class="FilterWheelControl.ControlPanel"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Height="700" Width="800">
@@ -59,8 +59,9 @@
             <ComboBox x:Name="JumpSelectionBox" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Margin="138,0,0,0" ToolTip="Select a filter."/>
         </Grid>
         <Grid Margin="330,105,45,537">
-            <CheckBox x:Name="TriggerSlewAdjust" Content="Adjust exposure times for trigger slew" HorizontalAlignment="Left" Margin="0,8,0,0" VerticalAlignment="Top" Click="TriggerSlewAdjust_Click" IsChecked="False" ToolTip="Subtracts 0.002 s from each integer exposure time."/>
+            <CheckBox x:Name="TriggerSlewAdjust" Content="Adjust exposure times for trigger" HorizontalAlignment="Left" Margin="226,8,0,0" VerticalAlignment="Top" Click="TriggerSlewAdjust_Click" IsChecked="False" IsHitTestVisible ="False" ToolTip="Subtracts 0.002 s from each integer exposure time."/>
             <CheckBox x:Name="EfficientOrder" Content="Order filters to reduce down time" HorizontalAlignment="Left" Margin="0,29,0,0" VerticalAlignment="Top" Click="EfficientOrder_Click" ToolTip="Orders the filters to reduce time between exposures."/>
+            <CheckBox Content="Only allow Stop between filters" HorizontalAlignment="Left" Margin="0,8,0,0" VerticalAlignment="Top"/>
         </Grid>
         <Separator HorizontalAlignment="Left" Height="12" Margin="330,88,0,0" VerticalAlignment="Top" Width="425"/>
         <Grid Margin="330,163,45,517">
