@@ -88,15 +88,7 @@ namespace FilterWheelControl
                 }
                 catch (IOException)
                 {
-                    try
-                    {
-                        Thread.Sleep(250);
-                        File.Delete(name);
-                    }
-                    catch (IOException)
-                    {
-                        return false;
-                    }
+                    return false;
                 }
                 return true;
             }

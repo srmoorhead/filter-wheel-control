@@ -49,7 +49,7 @@ namespace FilterWheelControl
         private bool _delete_allowed;
         private CurrentSettingsList _settings_list;
 
-        FilterWheelInterface _fw;
+        WheelInterface _fw;
         CaptureSession _capture_session;
         System.Windows.Threading.DispatcherTimer _elapsedTimeClock;
         DateTime _runStart;
@@ -73,7 +73,7 @@ namespace FilterWheelControl
             this._delete_allowed = true;
             this._fw_inst_lock = new object();
             this._settings_list = new CurrentSettingsList();
-            this._fw = new FilterWheelInterface();
+            this._fw = new WheelInterface();
             this._file_mgr = fileMgr;
             
             // Set up the small viewer and capture view functionality in Main View
@@ -409,12 +409,13 @@ namespace FilterWheelControl
         /// <summary>
         /// Disables any Add, Edit, Delete, or Load functions
         /// </summary>
-        private void disableFilterSettingsChanges()
+        private void DisableFilterSettingsChanges()
         {
             AddButton.IsHitTestVisible = false;
             DeleteButton.IsHitTestVisible = false;
             EditButton.IsHitTestVisible = false;
             LoadButton.IsHitTestVisible = false;
+            SaveButton.IsHitTestVisible = false;
             CurrentSettings.IsHitTestVisible = false;
             InputTime.KeyDown -= InputTime_KeyDown;
             NumFrames.KeyDown -= NumFrames_KeyDown;
@@ -425,12 +426,13 @@ namespace FilterWheelControl
         /// <summary>
         /// Re-enables any Add, Edit, Delete, or Load functions
         /// </summary>
-        private void enableFilterSettingsChanges()
+        private void EnableFilterSettingsChanges()
         {
             AddButton.IsHitTestVisible = true;
             DeleteButton.IsHitTestVisible = true;
             EditButton.IsHitTestVisible = true;
             LoadButton.IsHitTestVisible = true;
+            SaveButton.IsHitTestVisible = true;
             CurrentSettings.IsHitTestVisible = true;
             InputTime.KeyDown += InputTime_KeyDown;
             NumFrames.KeyDown +=NumFrames_KeyDown;
@@ -465,7 +467,7 @@ namespace FilterWheelControl
                     this.ManualControl.IsHitTestVisible = false;
                     setRunGreen();
                     setAcquireClear();
-                    disableFilterSettingsChanges();
+                    DisableFilterSettingsChanges();
 
                     // Inform the Capture Session to begin capturing images
                     if (_capture_session == null)
@@ -486,16 +488,24 @@ namespace FilterWheelControl
             {
                 if (SystemReady())
                 {
-                    // Update UI to reflect running
+                    // Check that the user will complete a full filter sequence
+                    int nframes = Convert.ToInt32(_exp.GetValue(ExperimentSettings.AcquisitionFramesToStore));
+                    if (nframes < _settings_list.FramesPerCycle())
+                    {
+                        if (MessageBox.Show("With the given acquisition settings, you will not complete an entire filter cycle.  Is this okay?", "Warning", MessageBoxButton.YesNo) == MessageBoxResult.No)
+                            return;
+                    }
+                    
+                    // Update UI to reflect acquiring
                     this.ManualControl.IsHitTestVisible = false;
                     setAcquireGreen();
                     setRunClear();
-                    disableFilterSettingsChanges();
+                    DisableFilterSettingsChanges();
 
                     // Inform the Capture Session to begin acquiring images
                     if (_capture_session == null)
                         BeginNewCaptureSession();
-                    _capture_session.Acquire(Convert.ToInt32(_exp.GetValue(ExperimentSettings.AcquisitionFramesToStore)));
+                    _capture_session.Acquire(nframes);
                 }
             }
             else
@@ -640,11 +650,11 @@ namespace FilterWheelControl
             {
                 if (_exp == null)
                     return;
+                else if (_capture_session == null)
+                    return;
 
                 _capture_session.Stop();
                 LaunchFinishCapturing();
-
-                enableFilterSettingsChanges();
             }
             else
                 AutomatedControlDisabledMessage();
@@ -666,6 +676,7 @@ namespace FilterWheelControl
         {
             FlashStop();
             _elapsedTimeClock.Stop();
+            Application.Current.Dispatcher.BeginInvoke(new Action(EnableFilterSettingsChanges));
             _capture_session = null;
         }
 

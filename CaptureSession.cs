@@ -32,7 +32,7 @@ namespace FilterWheelControl
         private List<IDisplayViewer> _views;
         private ControlPanel _panel;
         private IExperiment _exp;
-        private FilterWheelInterface _fw;
+        private WheelInterface _fw;
         private FilterSetting _current_setting;
         
         private FileHandler _file_handler;
@@ -54,7 +54,7 @@ namespace FilterWheelControl
         /// <param name="fmgr">The LightField application's IFileManager object</param>
         /// <param name="f">The FilterWheelInterface object</param>
         /// <param name="settings">The current filter settings</param>
-        public CaptureSession(ControlPanel panel, List<IDisplayViewer> views, IExperiment exp, IFileManager fmgr, FilterWheelInterface f, CurrentSettingsList settings)
+        public CaptureSession(ControlPanel panel, List<IDisplayViewer> views, IExperiment exp, IFileManager fmgr, WheelInterface f, CurrentSettingsList settings)
         {
             this._panel = panel;
             this._views = views;
@@ -209,6 +209,7 @@ namespace FilterWheelControl
                     // LightField has attempted to take control of capture
                     _exp.Stop();
                     HaltAcquisition(CONCURRENT);
+                    wrapUp();
                     return;
                 }
 
@@ -377,12 +378,14 @@ namespace FilterWheelControl
             _is_running = false;
             _is_acquiring = false;
             _stop = true;
-            Application.Current.Dispatcher.BeginInvoke(new Action(_panel.ResetUI));
-            Application.Current.Dispatcher.BeginInvoke(new Action(_panel.LaunchFinishCapturing));
+
             if (reason == CONCURRENT)
                 MessageBox.Show("LightField has attempted to initiate capturing via the regular Run and Acquire functions.  Concurrent capturing will cause LightField to crash.\n\nHalting acquisition.  If you were acquiring, your data has been saved.");
             if (reason == SELECTED || reason == EXPORT)
                 MessageBox.Show("Acqusition has been halted.");
+
+            Application.Current.Dispatcher.BeginInvoke(new Action(_panel.ResetUI));
+            Application.Current.Dispatcher.BeginInvoke(new Action(_panel.LaunchFinishCapturing));
         }
 
         /// <summary>
