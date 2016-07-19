@@ -349,8 +349,7 @@ namespace FilterWheelControl
         /// </summary>
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
-            string content = _settings_list.GenerateFileContent();
-            FileHandler.CurrentSettingsSave(content);
+            _settings_list.CurrentSettingsSave();
         }
 
         /// <summary>
@@ -361,7 +360,7 @@ namespace FilterWheelControl
         {
             clearFilterSettings();
             
-            string loaded = FileHandler.CurrentSettingsLoad();
+            string loaded = _settings_list.CurrentSettingsLoad();
 
             if (loaded != null)
             {
@@ -379,7 +378,7 @@ namespace FilterWheelControl
         }
 
         /// <summary>
-        /// Given a string containing the data from a filter settings file, populated the CurrentSettings list
+        /// Given a string containing the data from a filter settings file, populate the CurrentSettings list
         /// </summary>
         /// <param name="toBeRead">The string to be read into the CurrentSettings list</param>
         private void readFileIntoList(string toBeRead)

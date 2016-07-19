@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Windows; // for MessageBox
 using System.Collections.ObjectModel; // for ObservableCollection
+using System.IO;
 
 namespace FilterWheelControl
 {
@@ -376,5 +377,103 @@ namespace FilterWheelControl
         #endregion // Validate Inputs
 
         #endregion // Modifiers
+
+        #region File IO
+
+        /// <summary>
+        /// Writes a string of content to a .dat file
+        /// </summary>
+        /// <param name="content">The string of information to be written to the file</param>
+        public void CurrentSettingsSave()
+        {
+            string content = this.GenerateFileContent();
+            try
+            {
+
+                // Configure save file dialog box
+                Microsoft.Win32.SaveFileDialog dlg = new Microsoft.Win32.SaveFileDialog();
+                dlg.FileName = "FilterSettings"; // Default file name
+                dlg.DefaultExt = ".dat"; // Default file extension
+                dlg.Filter = "Filter data files (.dat)|*.dat"; // Filter files by extension
+
+                // Show save file dialog box
+                Nullable<bool> result = dlg.ShowDialog();
+
+                // Process save file dialog box results
+                if (result == true)
+                {
+                    // Save document
+                    string filename = dlg.FileName;
+
+                    FileStream output = File.Create(filename);
+                    Byte[] info = new UTF8Encoding(true).GetBytes(content);
+
+                    output.Write(info, 0, info.Length);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("There was an error saving your file.  See info here:\n\n" + ex.ToString());
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        public string CurrentSettingsLoad()
+        {
+            try
+            {
+                // Configure open file dialog box
+                Microsoft.Win32.OpenFileDialog dlg = new Microsoft.Win32.OpenFileDialog();
+                dlg.FileName = "FilterSettings"; // Default file name
+                dlg.DefaultExt = ".dat"; // Default file extension
+                dlg.Filter = "Filter data files (.dat)|*.dat"; // Filter files by extension
+
+                // Show open file dialog box
+                Nullable<bool> result = dlg.ShowDialog();
+
+                // Process open file dialog box results
+                if (result == true)
+                {
+                    // Open document
+                    string filename = dlg.FileName;
+
+                    byte[] bytes;
+
+                    using (FileStream fsSource = new FileStream(filename, FileMode.Open, FileAccess.Read))
+                    {
+
+                        // Read the source file into a byte array.
+                        bytes = new byte[fsSource.Length];
+                        int numBytesToRead = (int)fsSource.Length;
+                        int numBytesRead = 0;
+                        while (numBytesToRead > 0)
+                        {
+                            // Read may return anything from 0 to numBytesToRead.
+                            int n = fsSource.Read(bytes, numBytesRead, numBytesToRead);
+
+                            // Break when the end of the file is reached.
+                            if (n == 0)
+                                break;
+
+                            numBytesRead += n;
+                            numBytesToRead -= n;
+                        }
+                    }
+
+                    string return_val = System.Text.Encoding.UTF8.GetString(bytes, 0, bytes.Length);
+
+                    return return_val;
+                }
+            }
+            catch (FileNotFoundException e)
+            {
+                MessageBox.Show("There was an error reading in the file.  See info here:\n\n" + e.Message);
+            }
+            return null;
+        }
+
+        #endregion // File IO
     }
 }
