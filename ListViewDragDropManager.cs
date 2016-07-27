@@ -1,5 +1,5 @@
 ﻿// Copyright (C) Josh Smith - January 2007
-﻿// Edit lines 388-390, 401-420 by S. R. Moorhead for specific application to Filter Wheel Control project - May 2016
+﻿// Edit lines 16, 388-397, 408-442 by S. R. Moorhead for specific application to Filter Wheel Control project - May 2016
 using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -385,10 +385,17 @@ namespace WPF.JoshSmith.ServiceProviders.UI
                 {
                     itemsSource.Move(oldIndex, newIndex);
 
-                    // EDIT:  S.R. Moorhead for FilterWheel Control Add-In
+                    /* #############################################################################################################
+                     * The following lines are modifications added by S.R. Moorhead for the FilterWheel Control Add-In in LightField 
+                     ###############################################################################################################*/
+
                     // Update the OrderLocation values of each filter after the move
                     updateLocVals(oldIndex, newIndex);
-                    
+
+                    /* ##################################
+                     * End Modifications by S.R. Moorhead 
+                     ####################################*/
+
                 }
                 else
                     itemsSource.Insert(newIndex, data);
@@ -398,8 +405,11 @@ namespace WPF.JoshSmith.ServiceProviders.UI
             }
         }
 
+        /* #############################################################################################################
+         * The following lines are modifications added by S.R. Moorhead for the FilterWheel Control Add-In in LightField 
+         ###############################################################################################################*/
+
         /// <summary>
-        /// EDIT:  S.R. Moorhead for FilterWheel Control Add-In
         /// Updates the OrderLocation values for Filters stored between two indices
         /// 
         /// this.listView.ItemsSource must be of type ObservableCollection - Filter
@@ -421,13 +431,15 @@ namespace WPF.JoshSmith.ServiceProviders.UI
             // Capture list
             ObservableCollection<FilterSetting> itemsSource = this.listView.ItemsSource as ObservableCollection<FilterSetting>;
             for (int i = low; i <= hi; i++)
-            {
                 itemsSource[i].OrderLocation = i + 1;
-            }
 
             // Refresh the list
             this.listView.Items.Refresh();
         }
+
+        /* ##################################
+         * End Modifications by S.R. Moorhead 
+         ####################################*/
 
         #endregion // listView_Drop
 
