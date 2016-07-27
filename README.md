@@ -6,6 +6,12 @@ MouseUtilities.cs, DragAdorner.cs, and ListViewDragDropManager.cs are copyright 
 ControlPanel.xaml.cs - Primary interaction logic for the control panel.
 ControlPanel.xaml - Layout and design of control panel.
 FilterWheelControl.cs - Launch file that loads add-in into LightField.
+CaptureSession.cs - Handles capturing images in a synchronous manner with the filter wheel rotation.  Controls most parts of image acquisition.
+CurrentSettingsList.cs - Handles all functionality involving the current settings list, including file IO.
+FileHandler.cs - Handles all image file IO for .spe and .fits files.
+Filters.cs - An object representing a filter in a filter wheel.  Closely mirrors a singly-linked list.
+FilterWheelSim.cs - A simulator for a filter wheel.  Used while the physical wheel was not present for development.
+WheelInterface.cs - Handles all interactions with the filter wheel hardware device.
 
 All LightField methods and libraries are copyright protected by Princeton Instruments.  For information on LightField, see:  http://www.princetoninstruments.com/products/LightField
 
