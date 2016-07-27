@@ -46,7 +46,7 @@ namespace FilterWheelControl
         /// </summary>
         /// <param name="fnum">The current frame number.  Used to numerically order the frames and avoid overwriting.</param>
         /// <param name="frame">The frame to be saved.</param>
-        /// <param name="app">The LightField Application object, used for gathering system settings.</param>
+        /// <param name="padSize">The number of places to pad the file numbers.</param>
         public bool ExportFITSFrame(IImageDataSet frame, int fnum, int padSize)
         {
             // Ensure the output file name doesn't conflict with an existing file
@@ -70,7 +70,6 @@ namespace FilterWheelControl
         /// </summary>
         /// <param name="settings">The IFitsExportSettings pertaining to this file</param>
         /// <param name="name">The name of the file after export</param>
-        /// <param name="filemgr">The IFileManager object handling exporting</param>
         /// <returns>true if the export was a success, false otherwise</returns>
         private bool WriteFile(IFitsExportSettings settings, string name)
         {
@@ -79,6 +78,7 @@ namespace FilterWheelControl
                 // Export the file
                 _file_mgr.Export((IExportSettings)settings, name + SPE_EXTENSION);
 
+                /*
                 // Delete the temp file
                 try
                 {
@@ -87,7 +87,7 @@ namespace FilterWheelControl
                 catch (IOException)
                 {
                     return false;
-                }
+                }*/
                 
                 return true;
             }
@@ -129,7 +129,6 @@ namespace FilterWheelControl
         /// Returns the string representing the user-specified file name as entered in the LightField settings pane.
         /// Note that this DOES NOT include the file type (i.e. .spe, .fits, etc.).
         /// </summary>
-        /// <param name="_exp">The current LightField Experiment</param>
         /// <returns>The string, including directory, of the file name</returns>
         private string[] RetrieveFileNameInfo()
         {
@@ -269,11 +268,5 @@ namespace FilterWheelControl
         #endregion // Validate Fits Export
 
         #endregion // Export Fits File
-
-        #region CurrentSettings IO
-
-        
-
-        #endregion // CurrentSettings IO
     }
 }

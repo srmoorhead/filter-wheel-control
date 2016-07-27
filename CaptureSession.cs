@@ -276,6 +276,7 @@ namespace FilterWheelControl
                         Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.UpdatePanelMetaData(data.GetFrameMetaData(0), captureCallTime)));
                         iteration++;
                     }
+
                 }
                 else
                 {
@@ -292,10 +293,7 @@ namespace FilterWheelControl
                         _fnum++;
                     }
 
-                    Tuple<IImageDataSet, IDisplayViewer> disp1Args = new Tuple<IImageDataSet, IDisplayViewer>(data, _views[0]);
-                    Tuple<IImageDataSet, IDisplayViewer> disp2Args = new Tuple<IImageDataSet, IDisplayViewer>(data, _views[1]);
-                    DisplayFrameInView(disp1Args);
-                    DisplayFrameInView(disp2Args);
+                    SynchronousDisplayFrame(data);
 
                     Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.UpdatePanelMetaData(data.GetFrameMetaData(0), captureCallTime)));
                     Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.UpdatePanelCurrentStatus("")));
@@ -321,11 +319,21 @@ namespace FilterWheelControl
         #region Display
 
         /// <summary>
+        /// Synchronously displays a frame in two views
+        /// </summary>
+        /// <param name="frame">the IImageDataSet to display</param>
+        private void SynchronousDisplayFrame(IImageDataSet frame)
+        {
+            Tuple<IImageDataSet, IDisplayViewer> disp1Args = new Tuple<IImageDataSet, IDisplayViewer>(frame, _views[0]);
+            Tuple<IImageDataSet, IDisplayViewer> disp2Args = new Tuple<IImageDataSet, IDisplayViewer>(frame, _views[1]);
+            DisplayFrameInView(disp1Args);
+            DisplayFrameInView(disp2Args);
+        }
+
+        /// <summary>
         /// Asynchronously displays a frame in two views
         /// </summary>
         /// <param name="frame">the IImageDataSet to display</param>
-        /// <param name="view1">the first IDisplayViewer</param>
-        /// <param name="view2">the second IDisplayViewer</param>
         private void DisplayFrame(IImageDataSet frame)
         {
             Thread disp1 = new Thread(DisplayFrameInView);
@@ -342,8 +350,7 @@ namespace FilterWheelControl
         /// Given a frame and a view object, displays the frame in the view
         /// Maintains most view window settings
         /// </summary>
-        /// <param name="frame">An IImageDataSet object to be displayed</param>
-        /// <param name="view">The IDisplayViewer object in which to display the frame</param>
+        /// <param name="args">A tuple holding the IImageDataSet to display, and the IDisplayViewer in which to display it</param>
         private void DisplayFrameInView(object args)
         {
             Tuple<IImageDataSet, IDisplayViewer> arguments = (Tuple<IImageDataSet, IDisplayViewer>)args;
