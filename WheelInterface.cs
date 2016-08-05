@@ -22,6 +22,7 @@ namespace FilterWheelControl
         #region Instance Variables
 
         private FilterWheel _fw;
+        private volatile bool _is_rotating;
 
         #endregion // Instance Variables
 
@@ -40,17 +41,23 @@ namespace FilterWheelControl
 
         public void RotateCounterClockwise()
         {
+            _is_rotating = true;
             _fw.MoveCCW();
+            _is_rotating = false;
         }
 
         public void RotateClockwise()
         {
+            _is_rotating = true;
             _fw.MoveCW();
+            _is_rotating = false;
         }
 
         public void RotateToFilter(object type)
         {
+            _is_rotating = true;
             _fw.MoveTo((string)type);
+            _is_rotating = false;
         }
 
         #endregion // Modifiers
@@ -75,6 +82,11 @@ namespace FilterWheelControl
         public bool MustRotate(string f)
         {
             return f != _fw.GetCurrent().ToString();
+        }
+
+        public bool IsRotating()
+        {
+            return _is_rotating;
         }
 
         #endregion // Accessors

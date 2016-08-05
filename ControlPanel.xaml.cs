@@ -45,6 +45,7 @@ namespace FilterWheelControl
 
         private List<TextBlock> _fw_inst_labels; // holds the labels that make up the filter wheel instrument on the instrument panel, 0 is the current filter, moving clockwise
         private readonly object _fw_inst_lock;
+        private readonly object _fw_movement_lock;
         
         private bool _delete_allowed;
         private CurrentSettingsList _settings_list;
@@ -72,6 +73,7 @@ namespace FilterWheelControl
             this._exp = e;
             this._delete_allowed = true;
             this._fw_inst_lock = new object();
+            this._fw_movement_lock = new object();
             this._settings_list = new CurrentSettingsList();
             this._fw = new WheelInterface();
             this._file_mgr = fileMgr;
@@ -741,10 +743,26 @@ namespace FilterWheelControl
                 if (_exp.IsRunning)
                     PleaseHaltCapturingMessage();
                 else
-                    ManualControlEnabledMessage();
+                {
+                    Thread rotate_ccw = new Thread(CCWRotate);
+                    rotate_ccw.Start();
+                }
             }
             else
                 ManualControlDisabledMessage();
+        }
+
+        /// <summary>
+        /// Handles the wheel rotation and instrument panel updating for the manual control counterclockwise rotation button
+        /// </summary>
+        private void CCWRotate()
+        {
+            lock (_fw_movement_lock)
+            {
+                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentRotate));
+                _fw.RotateCounterClockwise();
+                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder)); 
+            }
         }
 
         /// <summary>
@@ -757,10 +775,26 @@ namespace FilterWheelControl
                 if (_exp.IsRunning)
                     PleaseHaltCapturingMessage();
                 else
-                    ManualControlEnabledMessage();
+                {
+                    Thread rotate_cw = new Thread(CWRotate);
+                    rotate_cw.Start();
+                }
             }
             else
                 ManualControlDisabledMessage();
+        }
+
+        /// <summary>
+        /// Handles the wheel rotation and instrument panel updating for the manual control clockwise rotation button
+        /// </summary>
+        private void CWRotate()
+        {
+            lock (_fw_movement_lock)
+            {
+                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentRotate));
+                _fw.RotateClockwise();
+                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder)); 
+            }
         }
 
         /// <summary>
@@ -773,10 +807,33 @@ namespace FilterWheelControl
                 if (_exp.IsRunning)
                     PleaseHaltCapturingMessage();
                 else
-                    ManualControlEnabledMessage();
+                {
+                    if (JumpSelectionBox.SelectedIndex != -1)
+                    {
+                        string selected = (string)JumpSelectionBox.SelectedValue;
+                        Thread jump_to = new Thread(Jump);
+                        jump_to.Start(selected);
+                    }
+                    else
+                        MessageBox.Show("Please select a filter to jump to.");
+
+                }
             }
             else
                 ManualControlDisabledMessage();
+        }
+
+        /// <summary>
+        /// Handles the wheel rotation and instrument panel updating for the manual control clockwise rotation button
+        /// </summary>
+        private void Jump(object f_type)
+        {
+            lock (_fw_movement_lock)
+            {
+                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentRotate));
+                _fw.RotateToFilter((string)f_type);
+                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder));
+            }
         }
 
         #region Manual Control Messages

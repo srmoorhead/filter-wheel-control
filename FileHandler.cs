@@ -8,6 +8,7 @@ using System.IO;
 using System.Threading;
 using System.Xml; // for parsing the .spe footer
 using nom.tam.fits; // for working with the .fits file
+using nom.tam.util;
 
 namespace FilterWheelControl
 {
@@ -55,14 +56,82 @@ namespace FilterWheelControl
             if ((baseFile = CreateFileName(nameInfo, fnum, padSize)) == "ERROR")
                 return false;
 
+            /*
+
             // Save the current frame as an .spe file
             _file_mgr.SaveFile(frame, baseFile + SPE_EXTENSION);
              
             // Build export settings object
             IFitsExportSettings settings = GenerateExportSettings(nameInfo);
 
-            // Validate the output to ensure no errors
-            return WriteFile(settings, baseFile);
+            // Validate the output to ensure no errors, and write the temporary (incomplete header) fits file
+            if (!ExportToFits(settings, baseFile + SPE_EXTENSION))
+                return false;
+
+            _file_mgr.CloseFile(frame);
+
+            // Update the fits header
+            if (!UpdateFitsHeader(baseFile, frame))
+                return false;
+            
+             * */
+
+
+            /* BEGIN TEST CODE */
+
+            try
+            {
+                // The IImageDataSet frame should contain only one frame.
+                // We will break it down by region of interest, and then save each region as a separate .fits file.
+                for (int region = 0; region < frame.Regions.Length; region++)
+                {
+                    // Convert the data into a two-dimensional double array for conversion into a fits hdu
+                    Array data = frame.GetFrame(0, 0).GetData();
+                    int[] dimensions = { frame.GetFrame(region, 0).Width, frame.GetFrame(region, 0).Height };
+                    double[][] wrapped_data = new double[dimensions[1]][];
+
+                    int data_index = 0;
+                    for (int i = 0; i < dimensions[1]; i++)
+                    {
+                        wrapped_data[i] = new double[dimensions[0]];
+                        for (int j = 0; j < dimensions[0]; j++)
+                        {
+                            wrapped_data[i][j] = Convert.ToDouble(data.GetValue(data_index));
+                            data_index++;
+                        }
+                    }
+
+                    // Create the fits file and add Header info
+                    Fits f = new Fits();
+                    BasicHDU hdu = FitsFactory.HDUFactory(wrapped_data);
+                    Header fits_header = hdu.Header;
+
+                    HeaderCard[] header_cards = GenerateHeaderCards(frame);
+                    foreach (HeaderCard hc in header_cards)
+                        fits_header.AddCard(hc);
+
+                    f.AddHDU(hdu);
+
+                    // Save the file, putting "Region-n" in the filename if there is more than one region per frame
+                    BufferedDataStream bds;
+                    if(frame.Regions.Length == 1)
+                        bds = new BufferedDataStream(new FileStream(baseFile + FITS_EXTENSION, FileMode.Create));
+                    else
+                        bds = new BufferedDataStream(new FileStream(baseFile + "-Region-" + region + FITS_EXTENSION, FileMode.Create));
+                    f.Write(bds);
+                    bds.Close();
+                }
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show("There was an error writing your fits file.  Here's the info:\n\n" + e.Message);
+                return false;
+            }
+
+            /* END TEST CODE */
+
+            return true;
+
         }
 
         /// <summary>
@@ -71,23 +140,22 @@ namespace FilterWheelControl
         /// <param name="settings">The IFitsExportSettings pertaining to this file</param>
         /// <param name="name">The name of the file after export</param>
         /// <returns>true if the export was a success, false otherwise</returns>
-        private bool WriteFile(IFitsExportSettings settings, string name)
+        private bool ExportToFits(IFitsExportSettings settings, string name)
         {
-            if (ValidateOutput(settings, name + SPE_EXTENSION))
+            if (ValidateOutput(settings, name))
             {
                 // Export the file
-                _file_mgr.Export((IExportSettings)settings, name + SPE_EXTENSION);
+                _file_mgr.Export((IExportSettings)settings, name);
 
-                /*
                 // Delete the temp file
                 try
                 {
-                    File.Delete(name + SPE_EXTENSION);
+                    File.Delete(name);
                 }
                 catch (IOException)
                 {
                     return false;
-                }*/
+                }
                 
                 return true;
             }
@@ -118,7 +186,7 @@ namespace FilterWheelControl
             }
             if (edited && (fnum == 1))
             {
-                MessageBoxResult useNewName = MessageBox.Show("A file already exists with the name " + baseFile + FITS_EXTENSION + "\n\nYour data will be saved as: " + exportLoc + "\n\nIs this okay?", "Export Error - Pre-Existing File", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                MessageBoxResult useNewName = MessageBox.Show("A file already exists with the name " + baseFile + FITS_EXTENSION + "\n\nYour data will be saved as: \n\n" + exportLoc + "\n\nIs this okay?", "Export Error - Pre-Existing File", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (useNewName == MessageBoxResult.No)
                     return "ERROR";
             }
@@ -266,6 +334,59 @@ namespace FilterWheelControl
         }
 
         #endregion // Validate Fits Export
+
+        #region Edit Fits Header
+
+        /// <summary>
+        /// Updates the header of a fits file to include the following information:
+        /// 
+        /// DATE-OBS -- the date the data was observed, in UTC time
+        /// INSTRUME -- the instrument with which the data was taken
+        /// TIME-OBS -- the start time of the frame
+        /// TIME-END -- the end time of the frame
+        /// EXPTIME -- the exposure time of the frame
+        /// FILTER -- the filter in which the data was taken
+        /// 
+        /// Overwrites the existing fits file with the new, updated one.
+        /// </summary>
+        /// <param name="filename">The filename of the fits file to edit, NOT including the fits extension.</param>
+        /// <returns></returns>
+        private bool UpdateFitsHeader(string filename, IImageDataSet frame)
+        {
+            try
+            {
+                Fits f = new Fits(filename + FITS_EXTENSION);
+                BasicHDU hdu = f.ReadHDU();
+                Header fits_header = hdu.Header;
+
+                HeaderCard[] header_cards = GenerateHeaderCards(frame);
+                foreach (HeaderCard hc in header_cards)
+                    fits_header.AddCard(hc);
+
+                BufferedStream bs = new BufferedStream(new FileStream(filename + "test" + FITS_EXTENSION, FileMode.Create));
+                f.Write(bs);
+                
+                bs.Close();
+                f.Close();
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show("Error while updating header:\n\n" + e.Message);
+                return false;
+            }
+            return true;
+        }
+
+        private HeaderCard[] GenerateHeaderCards(IImageDataSet frame)
+        {
+            HeaderCard exptime = new HeaderCard("INSTRUME", Convert.ToInt16(_exp.GetValue(CameraSettings.ShutterTimingExposureTime)), "The requested exposure time in milliseconds.");
+            HeaderCard dateobs = new HeaderCard("DATE-OBS", DateTime.Today.ToString(), "The date this data was taken.");
+            HeaderCard filter = new HeaderCard("FILTER", "test", "The filter used while taking this data.");
+
+            return new HeaderCard[3] { exptime, dateobs, filter };
+        }
+
+        #endregion // Edit Fits Header
 
         #endregion // Export Fits File
     }
