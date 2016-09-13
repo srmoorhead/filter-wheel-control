@@ -31,6 +31,7 @@ namespace FilterWheelControl
 
         private ObservableCollection<FilterSetting> _filter_settings;
         private readonly object _current_settings_lock;
+        private WheelInterface _wheel_interface;
 
         #endregion // Instance Variables
 
@@ -39,10 +40,11 @@ namespace FilterWheelControl
         /// <summary>
         /// Instantiate a new CurrentSettingsList object and set the initial settings list to be empty
         /// </summary>
-        public CurrentSettingsList()
+        public CurrentSettingsList(WheelInterface wi)
         {
             this._filter_settings = new ObservableCollection<FilterSetting>();
             this._current_settings_lock = new object();
+            this._wheel_interface = wi;
         }
 
         /// <summary>
@@ -119,7 +121,7 @@ namespace FilterWheelControl
         /// <summary>
         /// Retrieves all the capture settings.  More efficient than calling each setting accessor individually
         /// </summary>
-        /// <returns>A Tuple holding the first FilterSetting, the number of frames in a sequence, and the zero pad value</returns>
+        /// <returns>A Tuple holding the first FilterSetting and the number of frames in a sequence (not including transitions)</returns>
         public Tuple<FilterSetting, int> GetAllCaptureSettings() 
         {
             int frames; 
@@ -127,7 +129,7 @@ namespace FilterWheelControl
             lock (_current_settings_lock)
             {
                 frames = _filter_settings[0].NumExposures;
-
+                
                 for (int i = 1; i < _filter_settings.Count; i++)
                 {
                     _filter_settings[i - 1].Next = _filter_settings[i];
@@ -260,22 +262,6 @@ namespace FilterWheelControl
             for (int i = 0; i < _filter_settings.Count; i++)
             {
                 _filter_settings[i].OrderLocation = i + 1;
-            }
-        }
-
-
-        public void InsertTransitionFrames()
-        {
-            lock (_current_settings_lock)
-            {
-                // Calculate the n-0 transition
-                double t = WheelInterface.TimeBetweenFilters(_filter_settings[_filter_settings.Count - 1].FilterType, _filter_settings[0].FilterType);
-
-                
-                for (int i = _filter_settings.Count - 1; i >= 0; i--)
-                {
-                    
-                }
             }
         }
 

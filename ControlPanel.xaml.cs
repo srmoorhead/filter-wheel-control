@@ -33,24 +33,33 @@ namespace FilterWheelControl
         private static readonly string InputTimeTextbox_DEFAULT_TEXT = "Exposure Time (s)"; // Change this string if you wish to change the text in the InputTime textbox
         private static readonly string NumFramesTextbox_DEFAULT_TEXT = "Num"; // Change this string if you wish to change the text in the NumFrames textbox
         public static readonly int FLASH_INTERVAL = 500; // Half the period of Stop button flashing
+        private static string INSTRUMENT_PANEL_DISPLAY_FORMAT = "{0}\t|  {1}\t|  {2} of {3}";  // {0} = filter type, {1} = exposure time, {2} = this iteration, {3} = total iterations
 
         #endregion // Static Variables
 
         #region Instance Variables
 
+        // Experiment instance variables
         private IExperiment _exp;
         private IFileManager _file_mgr;
 
+        // Instance variables for the instrument panel display items
         private List<TextBlock> _fw_inst_labels; // holds the labels that make up the filter wheel instrument on the instrument panel, 0 is the current filter, moving clockwise
         private readonly object _fw_inst_lock;
         private readonly object _fw_movement_lock;
-        
-        private bool _delete_allowed;
-        private CurrentSettingsList _settings_list;
-
-        WheelInterface _fw;
         System.Windows.Threading.DispatcherTimer _elapsedTimeClock;
         DateTime _runStart;
+        
+        // Instance variables for the Current Settings List
+        private bool _delete_allowed;
+        private CurrentSettingsList _settings_list;
+        
+        // Instance variables for acquisition
+        private FilterSetting _current_setting;
+        private bool _transitioning;
+        private int _iteration;
+        WheelInterface _wi;
+        
 
         #endregion // Instance Variables
 
@@ -71,8 +80,8 @@ namespace FilterWheelControl
             this._delete_allowed = true;
             this._fw_inst_lock = new object();
             this._fw_movement_lock = new object();
-            this._settings_list = new CurrentSettingsList();
-            this._fw = new WheelInterface();
+            this._wi = new WheelInterface();
+            this._settings_list = new CurrentSettingsList(_wi);
             this._file_mgr = fileMgr;
             
             // Set up the small viewer and capture view functionality in Main View
@@ -87,7 +96,7 @@ namespace FilterWheelControl
             // Populate the Filter Selection Box and Jump Selection Box with the available filters
             // Set the initial state of the instrument pane
             this._fw_inst_labels = new List<TextBlock> { F0, F1, F2, F3, F4, F5, F6, F7 };
-            List<Filter> set = _fw.GetOrderedSet();
+            List<Filter> set = _wi.GetOrderedSet();
             for(int i = 0; i < set.Count; i++)
             {
                 FilterSelectionBox.Items.Add(set[i].ToString());
@@ -488,17 +497,58 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void _exp_ImageDataSetReceived(object sender, ImageDataSetReceivedEventArgs e)
         {
-
+            if (_transitioning)
+            {
+                _transitioning = false;
+                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
+                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000); // convert to ms
+                _iteration = 0;
+            }
+            
+            // Update the iteration counter and _current_setting if necessary
+            if (_iteration == _current_setting.NumExposures)
+            {
+                _current_setting = _current_setting.Next;
+                SetNextExposureTime();
+            }
+            else
+                _iteration++;
         }
 
         /// <summary>
-        /// Sets the system up for the first exposure
+        /// Retrieves the first filter setting and calls SetNextExposureTime to determine how to proceed.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
         public void _exp_ExperimentStarted(object sender, ExperimentStartedEventArgs e)
         {
-            
+            _current_setting = _settings_list.GetAllCaptureSettings().Item1;
+            StartElapsedTimeClock();
+            SetNextExposureTime();
+        }
+
+        /// <summary>
+        /// Sets the next exposure time to either the transition time or the desired exposure time depending on the situation.
+        /// </summary>
+        private void SetNextExposureTime()
+        {
+            if (_wi.GetCurrentFilter().ToString() != _current_setting.FilterType)
+            {
+                _transitioning = true;
+
+                double rotation_time = _wi.TimeToFilter(_current_setting.FilterType);
+                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, rotation_time * 1000);
+
+                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
+
+                Thread rotate = new Thread(_wi.RotateToFilter);
+                rotate.Start(_current_setting.FilterType);
+            }
+            else
+            {
+                _iteration = 1;
+                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000);
+            }
         }
 
         /// <summary>
@@ -508,7 +558,7 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void _exp_ExperimentCompleted(object sender, ExperimentCompletedEventArgs e)
         {
-
+            _elapsedTimeClock.Stop();
         }
 
         /// <summary>
@@ -520,6 +570,15 @@ namespace FilterWheelControl
             this.RunStartTime.Text = _runStart.ToString("HH:mm:ss");
             this.ElapsedRunTime.Text = "00:00:00";
             _elapsedTimeClock.Start();
+        }
+
+        /// <summary>
+        /// Displays a message after waiting 500 ms to inform the observer that there has been an error.
+        /// </summary>
+        private void FilterRotationErrorMessage()
+        {
+            Thread.Sleep(500);
+            MessageBox.Show("There has been an error with the filter wheel rotation.  The Filter Wheel is not on the expected filter.  Please try restarting your acquisition.", "Filter Wheel Rotation Error");
         }
 
         #endregion // Automated Event Handlers
@@ -601,7 +660,7 @@ namespace FilterWheelControl
             lock (_fw_movement_lock)
             {
                 Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentRotate));
-                _fw.RotateCounterClockwise();
+                _wi.RotateCounterClockwise();
                 Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder)); 
             }
         }
@@ -633,7 +692,7 @@ namespace FilterWheelControl
             lock (_fw_movement_lock)
             {
                 Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentRotate));
-                _fw.RotateClockwise();
+                _wi.RotateClockwise();
                 Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder)); 
             }
         }
@@ -672,7 +731,7 @@ namespace FilterWheelControl
             lock (_fw_movement_lock)
             {
                 Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentRotate));
-                _fw.RotateToFilter((string)f_type);
+                _wi.RotateToFilter((string)f_type);
                 Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder));
             }
         }
@@ -715,7 +774,7 @@ namespace FilterWheelControl
         /// </summary>
         public void UpdateFWInstrumentOrder()
         {
-            List<Filter> newOrder = _fw.GetOrderedSet();
+            List<Filter> newOrder = _wi.GetOrderedSet();
             lock (_fw_inst_lock)
             {
                 for (int i = 0; i < _fw_inst_labels.Count(); i++)
