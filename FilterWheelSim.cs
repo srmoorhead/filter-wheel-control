@@ -43,14 +43,14 @@ namespace FilterWheelSimulator
         public Filter MoveCW()
         {
             current = current.GetPrev();
-            Thread.Sleep(1000);
+            Thread.Sleep(500);
             return this.current;
         }
 
         public Filter MoveCCW()
         {
             current = current.GetNext();
-            Thread.Sleep(1000);
+            Thread.Sleep(500);
             return this.current;
         }
 
@@ -93,7 +93,7 @@ namespace FilterWheelSimulator
                 for (int i = 0; i < measure.Item2; i++)
                     current = current.GetNext();
             }
-            Thread.Sleep(1000 * measure.Item2);
+            Thread.Sleep(500 * measure.Item2);
             return this.current;
         }
 

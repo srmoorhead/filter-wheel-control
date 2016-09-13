@@ -19,7 +19,6 @@ namespace FilterWheelControl
         private static readonly int DIRECTORY_INDEX = 0;
         private static readonly int FILENAME_INDEX = 1;
         private static readonly string FITS_EXTENSION = ".fits"; // the file extension for a fits file
-        private static readonly string SPE_EXTENSION = ".spe"; // the file extension for an spe file
         
         #endregion // Static Variables
 

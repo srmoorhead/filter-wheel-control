@@ -16,6 +16,7 @@ namespace FilterWheelControl
         #region Static Variables
 
         private static readonly List<string> _LOADED_FILTERS = new List<string> { "u", "g", "r", "i", "z", "BG40", "DARK", "NOFI" };
+        private static readonly double _TIME_BETWEEN_ADJACENT_FILTERS = 0.5; // in seconds
 
         #endregion // Static Variables
 
@@ -24,7 +25,7 @@ namespace FilterWheelControl
         private FilterWheel _fw;
         private volatile bool _is_rotating;
 
-        #endregion // Instance Variables
+        #endregion // Instance Variables 
 
         #region Constructors
 
@@ -87,6 +88,19 @@ namespace FilterWheelControl
         public bool IsRotating()
         {
             return _is_rotating;
+        }
+
+        public static double TimeBetweenFilters(string f1, string f2)
+        {
+            int i = 0;
+            while ((_LOADED_FILTERS[i] != f1 && _LOADED_FILTERS[i] != f2) && i < _LOADED_FILTERS.Count)
+                i++;
+
+            int j = i + 1;
+            while ((_LOADED_FILTERS[j] != f1 && _LOADED_FILTERS[j] != f2) && j < _LOADED_FILTERS.Count)
+                j++;
+
+            return (j - i) * _TIME_BETWEEN_ADJACENT_FILTERS;
         }
 
         #endregion // Accessors

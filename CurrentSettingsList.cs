@@ -24,7 +24,6 @@ namespace FilterWheelControl
         #region Static Variables
 
         private static readonly double TRIGGER_SLEW_CORRECTION = 0.002; // seconds
-        private static readonly double MS_IN_12_HRS = 3600000 * 12; // milliseconds in 12 hours, = 4.32e+7
 
         #endregion // Static Variables
 
@@ -86,25 +85,7 @@ namespace FilterWheelControl
         }
 
         /// <summary>
-        /// Provides the max index, a double[] of exposure times, a string[] of filter types, the time-generated zero padding val, and an array of the filter exposure group sizes from the current FILTER_SETTINGS variable
-        /// Supports both the acquire_images and preview_images threads
-        /// </summary>
-        /// <returns>A Tuple with Item1 = int max_index and Item2 = double[] exposure_times and Item3 = string[] filter_types and Item4 = </returns>
-        public FilterSetting GetCaptureSettings()
-        {
-            lock (_current_settings_lock)
-            {
-                for (int i = 1; i < _filter_settings.Count; i++)
-                {
-                    _filter_settings[i - 1].Next = _filter_settings[i];
-                }
-                _filter_settings[_filter_settings.Count - 1].Next = _filter_settings[0];
-            }
-            return _filter_settings[0];
-        }
-
-        /// <summary>
-        /// Returns the total number of frames to be captured per loop through the Current Settings list
+        /// Returns the total number of frames to be captured per loop through the Current Settings list, not including transition frames
         /// </summary>
         /// <returns>Total number of frames per loop</returns>
         public int FramesPerCycle()
@@ -136,42 +117,26 @@ namespace FilterWheelControl
         }
 
         /// <summary>
-        /// Returns the ceiling of log10 of the number of frames possible in 12 hours
-        /// </summary>
-        /// <returns>Ceiling of log10 of the number of frames possible in 12 horus</returns>
-        public int ZeroPaddingVal()
-        {
-            double cycles = MS_IN_12_HRS / TotalCycleTime();
-            return Convert.ToInt32(Math.Ceiling(Math.Log10(cycles * FramesPerCycle())));
-        }
-
-        /// <summary>
         /// Retrieves all the capture settings.  More efficient than calling each setting accessor individually
         /// </summary>
         /// <returns>A Tuple holding the first FilterSetting, the number of frames in a sequence, and the zero pad value</returns>
-        public Tuple<FilterSetting, int, int> GetAllCaptureSettings() 
+        public Tuple<FilterSetting, int> GetAllCaptureSettings() 
         {
-            double time;
             int frames; 
 
             lock (_current_settings_lock)
             {
-                time = _filter_settings[0].DisplayTime;
                 frames = _filter_settings[0].NumExposures;
 
                 for (int i = 1; i < _filter_settings.Count; i++)
                 {
                     _filter_settings[i - 1].Next = _filter_settings[i];
-                    time += _filter_settings[i].DisplayTime * 1000.0 * _filter_settings[i].NumExposures; // convert to ms
                     frames += _filter_settings[i].NumExposures;
                 }
                 _filter_settings[_filter_settings.Count - 1].Next = _filter_settings[0];
             }
 
-            double cycles = MS_IN_12_HRS / time;
-            int padVal = Convert.ToInt32(Math.Ceiling(Math.Log10(cycles * frames)));
-
-            return new Tuple<FilterSetting, int, int>(_filter_settings[0], frames, padVal);
+            return new Tuple<FilterSetting, int>(_filter_settings[0], frames);
         }
 
         #endregion // Accessors
@@ -196,6 +161,8 @@ namespace FilterWheelControl
                 inputTime = Convert.ToDouble(time);
                 if ((inputTime % 1 == 0) && (inputTime > 0))
                     slewTime = inputTime - TRIGGER_SLEW_CORRECTION;
+                else if ((inputTime % 1 > .998) && (inputTime % 1 < 1))
+                    slewTime = inputTime + (1 - (inputTime % 1)) - TRIGGER_SLEW_CORRECTION;
                 else
                     slewTime = inputTime;
             }
@@ -293,6 +260,22 @@ namespace FilterWheelControl
             for (int i = 0; i < _filter_settings.Count; i++)
             {
                 _filter_settings[i].OrderLocation = i + 1;
+            }
+        }
+
+
+        public void InsertTransitionFrames()
+        {
+            lock (_current_settings_lock)
+            {
+                // Calculate the n-0 transition
+                double t = WheelInterface.TimeBetweenFilters(_filter_settings[_filter_settings.Count - 1].FilterType, _filter_settings[0].FilterType);
+
+                
+                for (int i = _filter_settings.Count - 1; i >= 0; i--)
+                {
+                    
+                }
             }
         }
 

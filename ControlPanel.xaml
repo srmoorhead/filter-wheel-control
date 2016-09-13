@@ -43,14 +43,11 @@
             <Button x:Name="AddButton" Content="Add" Click="AddButton_Click" HorizontalAlignment="Left" Margin="156,0,0,0" VerticalAlignment="Top" Width="75" Grid.Column="1" ToolTip="Add the filter, exposure time, and number of consecutive captures to the Current Filter Settings list."/>
         </Grid>
         <Label Content="Manual Wheel Controls" HorizontalAlignment="Left" Margin="477,319,0,0" VerticalAlignment="Top"/>
-        <Grid Margin="330,212,230,464">
-            <RadioButton x:Name="ManualControl" GroupName="Controller" Content="Manual Control" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="139,0,0,0" IsChecked="True" ToolTip="Enable manual control of the filter wheel."/>
-            <RadioButton x:Name="AutomatedControl" GroupName="Controller" Content="Automated Control" HorizontalAlignment="Left" VerticalAlignment="Top" IsChecked="False" ToolTip="Enable automated control of the filter wheel."/>
-        </Grid>
-        <Grid Margin="330,241,45,434">
-            <Button x:Name="RunOverride" Content="Run" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Click="RunOverride_Click" ToolTip="Capture images indefinitely, but do not save any."/>
-            <Button x:Name="AcquireOverride" Content="Acquire" HorizontalAlignment="Left" Margin="125,0,0,0" VerticalAlignment="Top" Width="75" Click="AcquireOverride_Click" ToolTip="Capture images and save them."/>
-            <Button x:Name="StopOverride" Content="Stop" HorizontalAlignment="Left" Margin="350,0,0,0" VerticalAlignment="Top" Width="75" Click="StopOverride_Click" ToolTip="Stop capturing images."/>
+        <Grid Margin="330,165,45,402">
+            <RadioButton x:Name="ManualControl" GroupName="Controller" Content="Manual Control" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,64,0,0" IsChecked="True" ToolTip="Enable manual control of the filter wheel." Click="ManualControl_Click"/>
+            <RadioButton x:Name="AutomatedControl" GroupName="Controller" Content="Automated Control" HorizontalAlignment="Left" VerticalAlignment="Top" IsChecked="False" ToolTip="Enable automated control of the filter wheel." Click="AutomatedControl_Click"/>
+            <Label x:Name="AutomatedControlDescription" Content="LightField will iterate through a provided sequence of filters and &#xD;&#xA;exposure times without the need for observer intervention." HorizontalAlignment="Left" Margin="40,18,0,0" VerticalAlignment="Top" Width="375" Height="43" BorderBrush="Gray" BorderThickness="4,0,0,0"/>
+            <Label x:Name="ManualControlDescription" Content="LighField will operate with no alterations to filter wheel position or &#xA;exposure times.  All desired changes must be input in real time." HorizontalAlignment="Left" Margin="40,83,0,0" VerticalAlignment="Top" Width="375" Height="43" BorderBrush="Gray" BorderThickness="4,0,0,0"/>
         </Grid>
         <Grid Margin="330,355,45,321">
             <Button x:Name="CCW" Content="Rotate CCW" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Click="CCW_Click" ToolTip="Rotate the filter wheel counterclockwise one position w.r.t. the camera."/>
@@ -58,17 +55,16 @@
             <Button x:Name="JumpButton" Content="Jump" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Margin="218,0,0,0" Click="JumpButton_Click" ToolTip="Jump to the specified filter."/>
             <ComboBox x:Name="JumpSelectionBox" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Margin="138,0,0,0" ToolTip="Select a filter."/>
         </Grid>
-        <Grid Margin="330,105,45,537">
-            <CheckBox x:Name="TriggerSlewAdjust" Content="Adjust exposure times for trigger" HorizontalAlignment="Left" Margin="226,8,0,0" VerticalAlignment="Top" Click="TriggerSlewAdjust_Click" IsChecked="False" IsHitTestVisible ="False" ToolTip="Subtracts 0.002 s from each integer exposure time."/>
-            <CheckBox x:Name="EfficientOrder" Content="Order filters to reduce down time" HorizontalAlignment="Left" Margin="0,29,0,0" VerticalAlignment="Top" Click="EfficientOrder_Click" ToolTip="Orders the filters to reduce time between exposures."/>
-            <CheckBox Content="Only allow Stop between filters" HorizontalAlignment="Left" Margin="0,8,0,0" VerticalAlignment="Top"/>
+        <Grid Margin="330,105,45,562">
+            <CheckBox x:Name="TriggerSlewAdjust" Content="Adjust exposure times for trigger" HorizontalAlignment="Left" Margin="226,8,0,0" VerticalAlignment="Top" Click="TriggerSlewAdjust_Click" IsChecked="False" ToolTip="Ensure all exposure times end at least 2 milliseconds before a trigger."/>
+            <CheckBox x:Name="EfficientOrder" Content="Order filters to reduce down time" HorizontalAlignment="Left" Margin="0,8,0,0" VerticalAlignment="Top" Click="EfficientOrder_Click" ToolTip="Order the filter settings to minimize filter wheel rotation time."/>
         </Grid>
         <Separator HorizontalAlignment="Left" Height="12" Margin="330,88,0,0" VerticalAlignment="Top" Width="425"/>
-        <Grid Margin="330,163,45,517">
+        <Grid Margin="330,140,45,540">
             <Separator HorizontalAlignment="Left" Height="12" Margin="0,5,0,0" VerticalAlignment="Top" Width="425"/>
             <Separator HorizontalAlignment="Left" Height="12" Margin="0" VerticalAlignment="Top" Width="425"/>
-            <Separator HorizontalAlignment="Left" Height="12" Margin="0,143,0,-138" VerticalAlignment="Top" Width="425"/>
-            <Separator HorizontalAlignment="Left" Height="12" Margin="0,138,0,-133" VerticalAlignment="Top" Width="425"/>
+            <Separator HorizontalAlignment="Left" Height="12" Margin="0,166,0,-158" VerticalAlignment="Top" Width="425"/>
+            <Separator HorizontalAlignment="Left" Height="12" Margin="0,161,0,-153" VerticalAlignment="Top" Width="425"/>
         </Grid>
         <Separator HorizontalAlignment="Left" Height="10" Margin="10,394,0,0" VerticalAlignment="Top" Width="745"/>
         <Grid x:Name="ViewerPane" HorizontalAlignment="Left" Height="281" Margin="10,409,0,0" VerticalAlignment="Top" Width="250"/>

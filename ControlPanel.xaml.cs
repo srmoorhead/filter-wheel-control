@@ -33,14 +33,12 @@ namespace FilterWheelControl
         private static readonly string InputTimeTextbox_DEFAULT_TEXT = "Exposure Time (s)"; // Change this string if you wish to change the text in the InputTime textbox
         private static readonly string NumFramesTextbox_DEFAULT_TEXT = "Num"; // Change this string if you wish to change the text in the NumFrames textbox
         public static readonly int FLASH_INTERVAL = 500; // Half the period of Stop button flashing
-        private static readonly int MAIN_VIEW = 0;  // the primary window in the Experiment workspace of LightField
 
         #endregion // Static Variables
 
         #region Instance Variables
 
         private IExperiment _exp;
-        private List<IDisplayViewer> _views;
         private IFileManager _file_mgr;
 
         private List<TextBlock> _fw_inst_labels; // holds the labels that make up the filter wheel instrument on the instrument panel, 0 is the current filter, moving clockwise
@@ -51,7 +49,6 @@ namespace FilterWheelControl
         private CurrentSettingsList _settings_list;
 
         WheelInterface _fw;
-        CaptureSession _capture_session;
         System.Windows.Threading.DispatcherTimer _elapsedTimeClock;
         DateTime _runStart;
 
@@ -84,8 +81,6 @@ namespace FilterWheelControl
             vc.DisplayViewer.Clear();
             vc.DisplayViewer.Add(vc.DisplayViewer.LiveDisplaySource);
 
-            this._views = new List<IDisplayViewer> { vc.DisplayViewer, dispMgr.GetDisplay(DisplayLocation.ExperimentWorkspace, MAIN_VIEW)};
-
             // Assign the Drag/Drop Manager to the CurrentSettings window
             new ListViewDragDropManager<FilterSetting>(this.CurrentSettings);
 
@@ -100,6 +95,10 @@ namespace FilterWheelControl
                 _fw_inst_labels[i].Text = set[i].ToString();
             }
 
+            // Set the initial Manual Control setting indicator
+            AutomatedControlDescription.BorderBrush = Brushes.Transparent;
+            ManualControlDescription.BorderBrush = Brushes.Gray;
+
             // Set up the elapsed time timer
             _elapsedTimeClock = new System.Windows.Threading.DispatcherTimer();
             _elapsedTimeClock.Tick += new EventHandler(elapsedTimeClock_Tick);
@@ -107,6 +106,41 @@ namespace FilterWheelControl
         }
 
         #endregion // Initialize Control Panel
+
+        #region Manual/Automated Control
+
+        /// <summary>
+        /// Updates the border indicator on the AutomatedControlDescription and ManualControlDescription labels to reflect that the system is in ManualControl mode
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void ManualControl_Click(object sender, RoutedEventArgs e)
+        {
+            AutomatedControlDescription.BorderBrush = Brushes.Transparent;
+            ManualControlDescription.BorderBrush = Brushes.Gray;
+        }
+
+        /// <summary>
+        /// Updates the border indicator on the AutomatedControlDescription and ManualControlDescription labels to reflect that the system is in AutomatedControl mode
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void AutomatedControl_Click(object sender, RoutedEventArgs e)
+        {
+            // Update UI to reflect option change
+            ManualControlDescription.BorderBrush = Brushes.Transparent;
+            AutomatedControlDescription.BorderBrush = Brushes.Gray;
+
+            // Hook up preview and acquire to new event handlers
+            EventHandler<ImageDataSetReceivedEventArgs> IDSReceived = new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived);
+            EventHandler<ExperimentCompletedEventArgs> ExperimentComplete = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted);
+            EventHandler<ExperimentStartedEventArgs> ExperimentStart = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted);
+            _exp.ImageDataSetReceived += IDSReceived;
+            _exp.ExperimentCompleted += ExperimentComplete;
+            _exp.ExperimentStarted += ExperimentStart;
+        }
+
+        #endregion // Manual/Automated Control
 
         #region Current Settings
 
@@ -445,190 +479,52 @@ namespace FilterWheelControl
 
         #endregion // Current Settings
 
-        #region Override Buttons
-
-        /////////////////////////////////////////////////////////////////
-        ///
-        /// Methods for Override Buttons (Run, Acquire, Stop)
-        ///
-        /////////////////////////////////////////////////////////////////
-
-        #region Run and Acquire
+        #region Automated Event Handlers
 
         /// <summary>
-        /// Runs when the "Run" button is clicked
+        /// 
         /// </summary>
-        private void RunOverride_Click(object sender, RoutedEventArgs e)
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        public void _exp_ImageDataSetReceived(object sender, ImageDataSetReceivedEventArgs e)
         {
-            if ((bool)AutomatedControl.IsChecked)
-            {
-                if (SystemReady())
-                {
-                    // Update UI to reflect running
-                    this.ManualControl.IsHitTestVisible = false;
-                    setRunGreen();
-                    setAcquireClear();
-                    DisableFilterSettingsChanges();
 
-                    // Inform the Capture Session to begin capturing images
-                    if (_capture_session == null)
-                        BeginNewCaptureSession();
-                    _capture_session.Run();
-                }
-            }
-            else
-                AutomatedControlDisabledMessage();
         }
 
         /// <summary>
-        /// Runs when the "Acquire" button is clicked
+        /// Sets the system up for the first exposure
         /// </summary>
-        private void AcquireOverride_Click(object sender, RoutedEventArgs e)
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        public void _exp_ExperimentStarted(object sender, ExperimentStartedEventArgs e)
         {
-            if ((bool)AutomatedControl.IsChecked)
-            {
-                if (SystemReady())
-                {
-                    // Check that the user will complete a full filter sequence
-                    int nframes = Convert.ToInt32(_exp.GetValue(ExperimentSettings.AcquisitionFramesToStore));
-                    if (nframes < _settings_list.FramesPerCycle())
-                    {
-                        if (MessageBox.Show("With the given acquisition settings, you will not complete an entire filter cycle.  Is this okay?", "Warning", MessageBoxButton.YesNo) == MessageBoxResult.No)
-                            return;
-                    }
-                    
-                    // Update UI to reflect acquiring
-                    this.ManualControl.IsHitTestVisible = false;
-                    setAcquireGreen();
-                    setRunClear();
-                    DisableFilterSettingsChanges();
-
-                    // Inform the Capture Session to begin acquiring images
-                    if (_capture_session == null)
-                        BeginNewCaptureSession();
-                    _capture_session.Acquire(nframes);
-                }
-            }
-            else
-                AutomatedControlDisabledMessage();
+            
         }
 
         /// <summary>
-        /// Creates a new capture session, sets the Run start time, and begins updating the Elapsed time
+        /// 
         /// </summary>
-        private void BeginNewCaptureSession()
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        public void _exp_ExperimentCompleted(object sender, ExperimentCompletedEventArgs e)
         {
-            _capture_session = new CaptureSession(this, _views, _exp, _file_mgr, _fw, _settings_list);
+
+        }
+
+        /// <summary>
+        /// Captures the current DateTime as the Run Start Time and begins the Elapsed Time clock on the Instrument Panel
+        /// </summary>
+        private void StartElapsedTimeClock()
+        {
             _runStart = DateTime.Now;
             this.RunStartTime.Text = _runStart.ToString("HH:mm:ss");
             this.ElapsedRunTime.Text = "00:00:00";
             _elapsedTimeClock.Start();
         }
 
-        #region Run and Acquire Color Changes
+        #endregion // Automated Event Handlers
 
-        /// <summary>
-        /// Sets the background of the Run button to Green
-        /// </summary>
-        public void setRunGreen()
-        {
-            RunOverride.Background = Brushes.Green;
-        }
-
-        /// <summary>
-        /// Sets the background of the Run button to Clear
-        /// </summary>
-        public void setRunClear()
-        {
-            RunOverride.ClearValue(Button.BackgroundProperty);
-        }
-
-        /// <summary>
-        /// Sets the background of the Acquire button to Green
-        /// </summary>
-        public void setAcquireGreen()
-        {
-            AcquireOverride.Background = Brushes.Green;
-        }
-
-        /// <summary>
-        /// Sets the background of the Acquire button to Clear
-        /// </summary>
-        public void setAcquireClear()
-        {
-            AcquireOverride.ClearValue(Button.BackgroundProperty);
-        }
-
-        #endregion // Run and Acquire Color Changes
-
-        #endregion // Run and Acquire
-
-        #region System Ready Checks
-
-        /// <summary>
-        /// Lets the program know the system is ready to capture images.
-        /// </summary>
-        /// <returns>bool true if system is ready, false otherwise</returns>
-        private bool SystemReady()
-        {
-            // Check that a camera is attached
-            IDevice camera = null;
-            foreach (IDevice device in _exp.ExperimentDevices)
-            {
-                if (device.Type == DeviceType.Camera)
-                    camera = device;
-            }
-            if (camera == null)
-            {
-                MessageBox.Show("Camera not found.  Please ensure there is a camera attached to the system.\nIf the camera is attached, ensure you have loaded it into this experiment.");
-                return false;
-            }
-
-            // Check that our camera can handle varying exposure times
-            if (!_exp.Exists(CameraSettings.ShutterTimingExposureTime))
-            {
-                MessageBox.Show("This camera does not support multiple exposure times.  Please ensure you are using the correct camera.");
-                return false;
-            }
-
-            // Check that the user has saved the experiment
-            if (_exp == null)
-            {
-                MessageBox.Show("You must save the LightField experiment before beginning acquisition.");
-            }
-
-            // Check that LightField is ready to run
-            if (!_exp.IsReadyToRun)
-            {
-                MessageBox.Show("LightField is not ready to begin acquisition.  Please ensure all required settings have been set and there are no ongoing processes, then try again.");
-                return false;
-            }
-
-            // Check that no acquisition is currently occuring
-            if (_exp.IsRunning)
-            {
-                MessageBox.Show("LightField is currently capturing images.  Please halt image capturing before attempting to begin a new capture session.");
-                return false;
-            }
-
-            // Check that the user has entered some filter settings
-            if (_settings_list.FramesPerCycle() == 0)
-            {
-                MessageBox.Show("To operate in multi-filter mode, you must specify some filter settings.\nIf you wish to operate manually, please use the Run and Acquire buttons at the top of the LightField window.");
-                return false;
-            }
-            if ((string)this.AddButton.Content == "Save")
-            {
-                MessageBox.Show("Please finish editing the selected filter and click Save, then try again.");
-                return false;
-            }
-
-            return true;
-        }
-
-        #endregion // System Ready Checks
-
-        #region Error Message
+        #region Automated Control Message
 
         /// <summary>
         /// Displays an error message anytime an automated control button is pressed, but automated control is not activated.
@@ -638,28 +534,9 @@ namespace FilterWheelControl
             MessageBox.Show("This control is disabled.  Please enable Automated Control.");
         }
 
-        #endregion // Error Message
+        #endregion // Automated Control Message
 
         #region Stop
-
-        /// <summary>
-        /// Runs when the "Stop" button is clicked
-        /// </summary>
-        private void StopOverride_Click(object sender, RoutedEventArgs e)
-        {
-            if ((bool)AutomatedControl.IsChecked)
-            {
-                if (_exp == null)
-                    return;
-                else if (_capture_session == null)
-                    return;
-
-                _capture_session.Stop();
-                LaunchFinishCapturing();
-            }
-            else
-                AutomatedControlDisabledMessage();
-        }
 
         /// <summary>
         /// Launches the thread that awaits capturing to finish
@@ -675,55 +552,19 @@ namespace FilterWheelControl
         /// </summary>
         private void FinishCapturing()
         {
-            FlashStop();
             _elapsedTimeClock.Stop();
             Application.Current.Dispatcher.BeginInvoke(new Action(EnableFilterSettingsChanges));
-            _capture_session = null;
         }
 
-        /// <summary>
-        /// Flashes the StopOverride button between Red and Clear at interval set by FLASH_INTERVAL
-        /// </summary>
-        private void FlashStop()
-        {
-            while (_capture_session.IsRunning() == true || _capture_session.IsAcquiring() == true)
-            {
-                Application.Current.Dispatcher.Invoke(new Action(SetStopRed));
-                Thread.Sleep(FLASH_INTERVAL);
-                Application.Current.Dispatcher.Invoke(new Action(SetStopClear));
-                Thread.Sleep(FLASH_INTERVAL);
-            }
-        }
-
-        /// <summary>
-        /// Sets the background of the StopOverride button to Red
-        /// </summary>
-        private void SetStopRed()
-        {
-            StopOverride.Background = Brushes.Red;
-        }
-
-        /// <summary>
-        /// Sets the background of the StopOverride button to clear
-        /// </summary>
-        private void SetStopClear()
-        {
-            StopOverride.ClearValue(Button.BackgroundProperty);
-        }
-        
         /// <summary>
         /// Resets the UI after Stop
         /// </summary>
         public void ResetUI()
         {
             ManualControl.IsHitTestVisible = true;
-            setAcquireClear();
-            setRunClear();
         }
 
         #endregion // Stop
-
-        #endregion // Override Buttons
 
         #region Manual Control Buttons
 
@@ -928,6 +769,8 @@ namespace FilterWheelControl
         }
 
         #endregion Instrument Panel
+
+        
 
     }
 }
