@@ -491,7 +491,9 @@ namespace FilterWheelControl
         #region Automated Event Handlers
 
         /// <summary>
-        /// 
+        /// Sets up the system for the next exposure.  If the filter wheel was transitioning, sets up for the first exposure in the new filter.
+        /// Otherwise, updates the _iteration counter.  If the current iteration is the max for the current filter, SetNextExposureTime is called.
+        /// Called after every exposure.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -502,7 +504,6 @@ namespace FilterWheelControl
                 _transitioning = false;
                 Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
                 _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000); // convert to ms
-                _iteration = 0;
             }
             
             // Update the iteration counter and _current_setting if necessary
@@ -517,6 +518,7 @@ namespace FilterWheelControl
 
         /// <summary>
         /// Retrieves the first filter setting and calls SetNextExposureTime to determine how to proceed.
+        /// Called every time LightField transitions from Stop to Run or Acquire.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -534,6 +536,7 @@ namespace FilterWheelControl
         {
             if (_wi.GetCurrentFilter().ToString() != _current_setting.FilterType)
             {
+                _iteration = 0;
                 _transitioning = true;
 
                 double rotation_time = _wi.TimeToFilter(_current_setting.FilterType);
@@ -559,6 +562,7 @@ namespace FilterWheelControl
         public void _exp_ExperimentCompleted(object sender, ExperimentCompletedEventArgs e)
         {
             _elapsedTimeClock.Stop();
+            Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
         }
 
         /// <summary>
