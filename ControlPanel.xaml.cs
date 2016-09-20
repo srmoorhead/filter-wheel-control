@@ -61,9 +61,11 @@ namespace FilterWheelControl
         WheelInterface _wi;
 
         // Custom event handlers
-        EventHandler<ImageDataSetReceivedEventArgs> _IDS_received;
-        EventHandler<ExperimentCompletedEventArgs> _experiment_complete;
-        EventHandler<ExperimentStartedEventArgs> _experiment_start;
+        EventHandler<ImageDataSetReceivedEventArgs> _IDS_received_automated;
+        EventHandler<ExperimentCompletedEventArgs> _experiment_complete_automated;
+        EventHandler<ExperimentStartedEventArgs> _experiment_start_automated;
+        EventHandler<ExperimentCompletedEventArgs> _experiment_complete_manual;
+        EventHandler<ExperimentStartedEventArgs> _experiment_start_manual;
         
 
         #endregion // Instance Variables
@@ -127,9 +129,12 @@ namespace FilterWheelControl
             _elapsedTimeClock.Interval = new TimeSpan(0,0,1); // updates every 1 second
 
             // Build the custom event handlers
-            _IDS_received = new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived);
-            _experiment_complete = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted);
-            _experiment_start = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted);
+            _IDS_received_automated = new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived_Automated);
+            _experiment_complete_automated = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_Automated);
+            _experiment_start_automated = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_Automated);
+
+            _experiment_complete_manual = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_ManualControl);
+            _experiment_start_manual = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_ManualControl);
         }
 
         #endregion // Initialize Control Panel
@@ -148,9 +153,13 @@ namespace FilterWheelControl
             ManualControlDescription.BorderBrush = Brushes.Gray;
 
             // Disconnect preview and acquire from custom event handlers
-            _exp.ImageDataSetReceived -= _IDS_received;
-            _exp.ExperimentCompleted -= _experiment_complete;
-            _exp.ExperimentStarted -= _experiment_start;
+            _exp.ImageDataSetReceived -= _IDS_received_automated;
+            _exp.ExperimentCompleted -= _experiment_complete_automated;
+            _exp.ExperimentStarted -= _experiment_start_automated;
+
+            // Connect preview and acquire to manual event handlers
+            _exp.ExperimentStarted += _exp_ExperimentStarted_ManualControl;
+            _exp.ExperimentCompleted += _exp_ExperimentCompleted_ManualControl;
 
         }
 
@@ -165,10 +174,14 @@ namespace FilterWheelControl
             ManualControlDescription.BorderBrush = Brushes.Transparent;
             AutomatedControlDescription.BorderBrush = Brushes.Gray;
 
+            // Disconnect preview and acquire from manual event handlers
+            _exp.ExperimentCompleted -= _exp_ExperimentCompleted_ManualControl;
+            _exp.ExperimentStarted -= _exp_ExperimentStarted_ManualControl;
+
             // Hook up preview and acquire to new event handlers
-            _exp.ImageDataSetReceived += _IDS_received;
-            _exp.ExperimentCompleted += _experiment_complete;
-            _exp.ExperimentStarted += _experiment_start;
+            _exp.ImageDataSetReceived += _IDS_received_automated;
+            _exp.ExperimentCompleted += _experiment_complete_automated;
+            _exp.ExperimentStarted += _experiment_start_automated;
         }
 
         #endregion // Manual/Automated Control
@@ -519,7 +532,7 @@ namespace FilterWheelControl
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        public void _exp_ImageDataSetReceived(object sender, ImageDataSetReceivedEventArgs e)
+        public void _exp_ImageDataSetReceived_Automated(object sender, ImageDataSetReceivedEventArgs e)
         {
             // Handle the end of a transition frame
             if (_transitioning)
@@ -548,7 +561,7 @@ namespace FilterWheelControl
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        public void _exp_ExperimentStarted(object sender, ExperimentStartedEventArgs e)
+        public void _exp_ExperimentStarted_Automated(object sender, ExperimentStartedEventArgs e)
         {
             // Disable changes to the settings list and control system and retrieve the first setting
             Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
@@ -597,7 +610,7 @@ namespace FilterWheelControl
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
-        public void _exp_ExperimentCompleted(object sender, ExperimentCompletedEventArgs e)
+        public void _exp_ExperimentCompleted_Automated(object sender, ExperimentCompletedEventArgs e)
         {
             _elapsedTimeClock.Stop();
             Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
@@ -637,6 +650,30 @@ namespace FilterWheelControl
         }
 
         #endregion // Automated Event Handlers
+
+        #region Manual Event Handlers
+
+        /// <summary>
+        /// Turns off the Automated Control option on the interface when acquisition is started in manual control mode.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        public void _exp_ExperimentStarted_ManualControl(object sender, ExperimentStartedEventArgs e)
+        {
+            AutomatedControl.IsHitTestVisible = false;
+        }
+
+        /// <summary>
+        /// Turns on the Automated Control option on the interface when acquisition is ended in manual control mode.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        public void _exp_ExperimentCompleted_ManualControl(object sender, ExperimentCompletedEventArgs e)
+        {
+            AutomatedControl.IsHitTestVisible = true;
+        }
+
+        #endregion // Manual Event Handlers
 
         #region Manual Control Buttons
 
