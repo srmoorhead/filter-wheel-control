@@ -127,14 +127,6 @@ namespace FilterWheelControl
             _elapsedTimeClock = new System.Windows.Threading.DispatcherTimer();
             _elapsedTimeClock.Tick += new EventHandler(elapsedTimeClock_Tick);
             _elapsedTimeClock.Interval = new TimeSpan(0,0,1); // updates every 1 second
-
-            // Build the custom event handlers
-            _IDS_received_automated = new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived_Automated);
-            _experiment_complete_automated = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_Automated);
-            _experiment_start_automated = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_Automated);
-
-            _experiment_complete_manual = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_ManualControl);
-            _experiment_start_manual = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_ManualControl);
         }
 
         #endregion // Initialize Control Panel
@@ -142,7 +134,8 @@ namespace FilterWheelControl
         #region Manual/Automated Control
 
         /// <summary>
-        /// Updates the border indicator on the AutomatedControlDescription and ManualControlDescription labels to reflect that the system is in ManualControl mode
+        /// Updates the border indicator on the AutomatedControlDescription and ManualControlDescription labels to reflect that the system is in ManualControl mode.
+        /// Attaches the appropriate custom event handlers to the ExperimentCompleted, ExperimentStarted, and ImageDataSetReceived events.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -152,36 +145,59 @@ namespace FilterWheelControl
             AutomatedControlDescription.BorderBrush = Brushes.Transparent;
             ManualControlDescription.BorderBrush = Brushes.Gray;
 
+            // Create new custom event handlers
+            _experiment_complete_manual = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_ManualControl);
+            _experiment_start_manual = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_ManualControl);
+
             // Disconnect preview and acquire from custom event handlers
             _exp.ImageDataSetReceived -= _IDS_received_automated;
             _exp.ExperimentCompleted -= _experiment_complete_automated;
             _exp.ExperimentStarted -= _experiment_start_automated;
 
             // Connect preview and acquire to manual event handlers
+            // Null the previous handlers to help with Garbage Collection
+            _exp.ExperimentStarted += null;
+            _exp.ExperimentCompleted += null;
             _exp.ExperimentStarted += _exp_ExperimentStarted_ManualControl;
             _exp.ExperimentCompleted += _exp_ExperimentCompleted_ManualControl;
-
         }
 
         /// <summary>
-        /// Updates the border indicator on the AutomatedControlDescription and ManualControlDescription labels to reflect that the system is in AutomatedControl mode
+        /// Updates the border indicator on the AutomatedControlDescription and ManualControlDescription labels to reflect that the system is in AutomatedControl mode.
+        /// Attaches the appropriate custom event handlers to the ExperimentCompleted, ExperimentStarted, and ImageDataSetReceived events.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
         private void AutomatedControl_Click(object sender, RoutedEventArgs e)
         {
-            // Update UI to reflect option change
-            ManualControlDescription.BorderBrush = Brushes.Transparent;
-            AutomatedControlDescription.BorderBrush = Brushes.Gray;
+            try
+            {
+                // Update UI to reflect option change
+                ManualControlDescription.BorderBrush = Brushes.Transparent;
+                AutomatedControlDescription.BorderBrush = Brushes.Gray;
 
-            // Disconnect preview and acquire from manual event handlers
-            _exp.ExperimentCompleted -= _exp_ExperimentCompleted_ManualControl;
-            _exp.ExperimentStarted -= _exp_ExperimentStarted_ManualControl;
+                // Create new custom event handlers
+                _IDS_received_automated = new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived_Automated);
+                _experiment_complete_automated = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_Automated);
+                _experiment_start_automated = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_Automated);
 
-            // Hook up preview and acquire to new event handlers
-            _exp.ImageDataSetReceived += _IDS_received_automated;
-            _exp.ExperimentCompleted += _experiment_complete_automated;
-            _exp.ExperimentStarted += _experiment_start_automated;
+                // Disconnect preview and acquire from manual event handlers
+                _exp.ExperimentCompleted -= _exp_ExperimentCompleted_ManualControl;
+                _exp.ExperimentStarted -= _exp_ExperimentStarted_ManualControl;
+
+                // Hook up preview and acquire to new event handlers
+                // Null the previous event handlers to help with Garbage Collection
+                _exp.ImageDataSetReceived += null;
+                _exp.ExperimentCompleted += null;
+                _exp.ExperimentStarted += null;
+                _exp.ImageDataSetReceived += _IDS_received_automated;
+                _exp.ExperimentCompleted += _experiment_complete_automated;
+                _exp.ExperimentStarted += _experiment_start_automated;
+            }
+            catch (Exception exp)
+            {
+                MessageBox.Show(exp.Message);
+            }
         }
 
         #endregion // Manual/Automated Control
