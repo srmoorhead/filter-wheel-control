@@ -579,18 +579,27 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void _exp_ExperimentStarted_Automated(object sender, ExperimentStartedEventArgs e)
         {
-            // Disable changes to the settings list and control system and retrieve the first setting
-            Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
-            _current_setting = _settings_list.GetCaptureSettings();
-            ManualControl.IsHitTestVisible = false;
-            
-            // Set up the first exposure time, wheel position, and update the instrument panel to reflect this
-            _transitioning = false;
-            SetNextExposureTime();
-            UpdateInstrumentPanel();
-            
-            // Initialize other environment variables
-            StartElapsedTimeClock();
+            // Don't start acquiring if there are no settings in the list.
+            if (_settings_list.GetSettingsCollection().Count() == 0)
+            {
+                MessageBox.Show("Please provide some filter setting to iterate through, or switch to Manual Control.");
+                _exp.Stop();
+            }
+            else
+            {
+                // Disable changes to the settings list and control system and retrieve the first setting
+                Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
+                _current_setting = _settings_list.GetCaptureSettings();
+                ManualControl.IsHitTestVisible = false;
+
+                // Set up the first exposure time, wheel position, and update the instrument panel to reflect this
+                _transitioning = false;
+                SetNextExposureTime();
+                UpdateInstrumentPanel();
+
+                // Initialize other environment variables
+                StartElapsedTimeClock();
+            }
         }
 
         /// <summary>
