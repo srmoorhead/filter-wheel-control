@@ -85,60 +85,33 @@ namespace FilterWheelControl
 
             return content;
         }
-
-        /// <summary>
-        /// Returns the total number of frames to be captured per loop through the Current Settings list, not including transition frames
-        /// </summary>
-        /// <returns>Total number of frames per loop</returns>
-        public int FramesPerCycle()
-        {
-            int total_num_frames = 0;
-            lock (_current_settings_lock)
-            {
-                foreach (FilterSetting fs in _filter_settings)
-                {
-                    total_num_frames += fs.NumExposures;
-                }
-            }
-            return total_num_frames;
-        }
-
-        /// <summary>
-        /// Returns the total cycle time in milliseconds for one full settings sequence
-        /// </summary>
-        /// <returns>A double representing the number of milliseconds in one full setting sequence</returns>
-        public double TotalCycleTime()
-        {
-            double time = 0;
-            lock (_current_settings_lock)
-            {
-                foreach (FilterSetting fs in _filter_settings)
-                    time += fs.DisplayTime;
-            }
-            return time;
-        }
-
+   
+        
         /// <summary>
         /// Retrieves all the capture settings.  More efficient than calling each setting accessor individually
         /// </summary>
         /// <returns>A Tuple holding the first FilterSetting and the number of frames in a sequence (not including transitions)</returns>
-        public Tuple<FilterSetting, int> GetAllCaptureSettings() 
+        public FilterSetting GetCaptureSettings() 
         {
-            int frames; 
-
             lock (_current_settings_lock)
             {
-                frames = _filter_settings[0].NumExposures;
-                
                 for (int i = 1; i < _filter_settings.Count; i++)
                 {
                     _filter_settings[i - 1].Next = _filter_settings[i];
-                    frames += _filter_settings[i].NumExposures;
                 }
                 _filter_settings[_filter_settings.Count - 1].Next = _filter_settings[0];
             }
 
-            return new Tuple<FilterSetting, int>(_filter_settings[0], frames);
+            return _filter_settings[0];
+        }
+
+        /// <summary>
+        /// Retrieves the value of the TRIGGER_SLEW_CORRECTION variable.
+        /// </summary>
+        /// <returns>TRIGGER_SLEW_CORRECTION</returns>
+        public double GetTriggerSlewCorrection()
+        {
+            return TRIGGER_SLEW_CORRECTION;
         }
 
         #endregion // Accessors

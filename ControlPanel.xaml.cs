@@ -59,6 +59,11 @@ namespace FilterWheelControl
         private bool _transitioning;
         private int _iteration;
         WheelInterface _wi;
+
+        // Custom event handlers
+        EventHandler<ImageDataSetReceivedEventArgs> _IDS_received;
+        EventHandler<ExperimentCompletedEventArgs> _experiment_complete;
+        EventHandler<ExperimentStartedEventArgs> _experiment_start;
         
 
         #endregion // Instance Variables
@@ -89,6 +94,14 @@ namespace FilterWheelControl
             ViewerPane.Children.Add(vc.Control);
             vc.DisplayViewer.Clear();
             vc.DisplayViewer.Add(vc.DisplayViewer.LiveDisplaySource);
+            vc.DisplayViewer.AlwaysAutoScaleIntensity = true;
+            vc.DisplayViewer.ShowExposureEndedTimeStamp = false;
+            vc.DisplayViewer.ShowExposureStartedTimeStamp = false;
+            vc.DisplayViewer.ShowFrameTrackingNumber = false;
+            vc.DisplayViewer.ShowGateTrackingDelay = false;
+            vc.DisplayViewer.ShowGateTrackingWidth = false;
+            vc.DisplayViewer.ShowModulationTrackingPhase = false;
+            vc.DisplayViewer.ShowStampedExposureDuration = false;
 
             // Assign the Drag/Drop Manager to the CurrentSettings window
             new ListViewDragDropManager<FilterSetting>(this.CurrentSettings);
@@ -112,6 +125,11 @@ namespace FilterWheelControl
             _elapsedTimeClock = new System.Windows.Threading.DispatcherTimer();
             _elapsedTimeClock.Tick += new EventHandler(elapsedTimeClock_Tick);
             _elapsedTimeClock.Interval = new TimeSpan(0,0,1); // updates every 1 second
+
+            // Build the custom event handlers
+            _IDS_received = new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived);
+            _experiment_complete = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted);
+            _experiment_start = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted);
         }
 
         #endregion // Initialize Control Panel
@@ -125,8 +143,15 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         private void ManualControl_Click(object sender, RoutedEventArgs e)
         {
+            // Update UI to reflect option change
             AutomatedControlDescription.BorderBrush = Brushes.Transparent;
             ManualControlDescription.BorderBrush = Brushes.Gray;
+
+            // Disconnect preview and acquire from custom event handlers
+            _exp.ImageDataSetReceived -= _IDS_received;
+            _exp.ExperimentCompleted -= _experiment_complete;
+            _exp.ExperimentStarted -= _experiment_start;
+
         }
 
         /// <summary>
@@ -141,12 +166,9 @@ namespace FilterWheelControl
             AutomatedControlDescription.BorderBrush = Brushes.Gray;
 
             // Hook up preview and acquire to new event handlers
-            EventHandler<ImageDataSetReceivedEventArgs> IDSReceived = new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived);
-            EventHandler<ExperimentCompletedEventArgs> ExperimentComplete = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted);
-            EventHandler<ExperimentStartedEventArgs> ExperimentStart = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted);
-            _exp.ImageDataSetReceived += IDSReceived;
-            _exp.ExperimentCompleted += ExperimentComplete;
-            _exp.ExperimentStarted += ExperimentStart;
+            _exp.ImageDataSetReceived += _IDS_received;
+            _exp.ExperimentCompleted += _experiment_complete;
+            _exp.ExperimentStarted += _experiment_start;
         }
 
         #endregion // Manual/Automated Control
@@ -499,6 +521,7 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void _exp_ImageDataSetReceived(object sender, ImageDataSetReceivedEventArgs e)
         {
+            // Handle the end of a transition frame
             if (_transitioning)
             {
                 _transitioning = false;
@@ -514,6 +537,9 @@ namespace FilterWheelControl
             }
             else
                 _iteration++;
+
+            // Update the instrument panel
+            UpdateInstrumentPanel();
         }
 
         /// <summary>
@@ -524,9 +550,18 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void _exp_ExperimentStarted(object sender, ExperimentStartedEventArgs e)
         {
-            _current_setting = _settings_list.GetAllCaptureSettings().Item1;
-            StartElapsedTimeClock();
+            // Disable changes to the settings list and control system and retrieve the first setting
+            Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
+            _current_setting = _settings_list.GetCaptureSettings();
+            ManualControl.IsHitTestVisible = false;
+            
+            // Set up the first exposure time, wheel position, and update the instrument panel to reflect this
+            _transitioning = false;
             SetNextExposureTime();
+            UpdateInstrumentPanel();
+            
+            // Initialize other environment variables
+            StartElapsedTimeClock();
         }
 
         /// <summary>
@@ -534,19 +569,21 @@ namespace FilterWheelControl
         /// </summary>
         private void SetNextExposureTime()
         {
+            // If we need to rotate, set up to do so
             if (_wi.GetCurrentFilter().ToString() != _current_setting.FilterType)
             {
                 _iteration = 0;
                 _transitioning = true;
 
                 double rotation_time = _wi.TimeToFilter(_current_setting.FilterType);
+                rotation_time = rotation_time % 1 == 0 ? rotation_time - _settings_list.GetTriggerSlewCorrection() : rotation_time;
                 _exp.SetValue(CameraSettings.ShutterTimingExposureTime, rotation_time * 1000);
 
-                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
-
+                // Rotate the filter wheel
                 Thread rotate = new Thread(_wi.RotateToFilter);
                 rotate.Start(_current_setting.FilterType);
             }
+            // Otherwise, set the iteration counter to zero and update the exposure time
             else
             {
                 _iteration = 1;
@@ -555,7 +592,8 @@ namespace FilterWheelControl
         }
 
         /// <summary>
-        /// 
+        /// Stops the elapsed the clock and sets the final values on the instrument panel.  Allows manual control to be re-enabled.
+        /// Runs when the Stop button is clicked or the desired number of frames are Acquired.
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -563,6 +601,28 @@ namespace FilterWheelControl
         {
             _elapsedTimeClock.Stop();
             Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
+            Application.Current.Dispatcher.BeginInvoke(new Action(EnableFilterSettingsChanges));
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("")));
+            ManualControl.IsHitTestVisible = true;
+        }
+
+        /// <summary>
+        /// Updated the instrument panel to reflect the current situation.
+        /// If the filter wheel is rotating, updates to show rotation.
+        /// If the filter wheel is not rotating, updates the exposure counter.
+        /// </summary>
+        private void UpdateInstrumentPanel()
+        {
+            if (_transitioning)
+            {
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("Rotating to " + _current_setting.FilterType)));
+                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
+            }
+            else
+            {
+                String currStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration, _current_setting.NumExposures);
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus(currStat)));
+            }
         }
 
         /// <summary>
@@ -576,58 +636,7 @@ namespace FilterWheelControl
             _elapsedTimeClock.Start();
         }
 
-        /// <summary>
-        /// Displays a message after waiting 500 ms to inform the observer that there has been an error.
-        /// </summary>
-        private void FilterRotationErrorMessage()
-        {
-            Thread.Sleep(500);
-            MessageBox.Show("There has been an error with the filter wheel rotation.  The Filter Wheel is not on the expected filter.  Please try restarting your acquisition.", "Filter Wheel Rotation Error");
-        }
-
         #endregion // Automated Event Handlers
-
-        #region Automated Control Message
-
-        /// <summary>
-        /// Displays an error message anytime an automated control button is pressed, but automated control is not activated.
-        /// </summary>
-        private static void AutomatedControlDisabledMessage()
-        {
-            MessageBox.Show("This control is disabled.  Please enable Automated Control.");
-        }
-
-        #endregion // Automated Control Message
-
-        #region Stop
-
-        /// <summary>
-        /// Launches the thread that awaits capturing to finish
-        /// </summary>
-        public void LaunchFinishCapturing()
-        {
-            Thread launch = new Thread(FinishCapturing);
-            launch.Start();
-        }
-
-        /// <summary>
-        /// Flashes the Stop button until capturing is halted.  Resets the current CaptureSession
-        /// </summary>
-        private void FinishCapturing()
-        {
-            _elapsedTimeClock.Stop();
-            Application.Current.Dispatcher.BeginInvoke(new Action(EnableFilterSettingsChanges));
-        }
-
-        /// <summary>
-        /// Resets the UI after Stop
-        /// </summary>
-        public void ResetUI()
-        {
-            ManualControl.IsHitTestVisible = true;
-        }
-
-        #endregion // Stop
 
         #region Manual Control Buttons
 
@@ -652,8 +661,6 @@ namespace FilterWheelControl
                     rotate_ccw.Start();
                 }
             }
-            else
-                ManualControlDisabledMessage();
         }
 
         /// <summary>
@@ -684,8 +691,6 @@ namespace FilterWheelControl
                     rotate_cw.Start();
                 }
             }
-            else
-                ManualControlDisabledMessage();
         }
 
         /// <summary>
@@ -723,8 +728,6 @@ namespace FilterWheelControl
 
                 }
             }
-            else
-                ManualControlDisabledMessage();
         }
 
         /// <summary>
@@ -740,17 +743,6 @@ namespace FilterWheelControl
             }
         }
 
-        #region Manual Control Messages
-
-        /// <summary>
-        /// Displays a message letting the user know that the Manual Control functions are enabled.
-        /// For build purposes only.  Will be removed for final version when these buttons actually do something.
-        /// </summary>
-        private static void ManualControlEnabledMessage()
-        {
-            MessageBox.Show("This control is enabled");
-        }
-
         /// <summary>
         /// Displays an error message anytime LightField is capturing images and the user attempts to rotate the filter wheel.
         /// </summary>
@@ -758,16 +750,6 @@ namespace FilterWheelControl
         {
             MessageBox.Show("Please halt current frame capturing before attempting to rotate the filter wheel.");
         }
-
-        /// <summary>
-        /// Displays an error message anytime a manual control button is pressed, but manual control is disabled.
-        /// </summary>
-        private static void ManualControlDisabledMessage()
-        {
-            MessageBox.Show("This control is disabled.  Please enable Manual Control.");
-        }
-
-        #endregion //Manual Control Messages
 
         #endregion // Manual Control Buttons
 
