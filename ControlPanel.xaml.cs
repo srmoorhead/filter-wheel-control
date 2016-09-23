@@ -46,7 +46,7 @@ namespace FilterWheelControl
         // Instance variables for the instrument panel display items
         private List<TextBlock> _fw_inst_labels; // holds the labels that make up the filter wheel instrument on the instrument panel, 0 is the current filter, moving clockwise
         private readonly object _fw_inst_lock;
-        private readonly object _fw_movement_lock;
+        private readonly object _fw_rotation_lock;
         System.Windows.Threading.DispatcherTimer _elapsedTimeClock;
         DateTime _runStart;
         
@@ -86,7 +86,7 @@ namespace FilterWheelControl
             this._exp = e;
             this._delete_allowed = true;
             this._fw_inst_lock = new object();
-            this._fw_movement_lock = new object();
+            this._fw_rotation_lock = new object();
             this._wi = new WheelInterface();
             this._settings_list = new CurrentSettingsList(_wi);
             this._file_mgr = fileMgr;
@@ -96,29 +96,23 @@ namespace FilterWheelControl
             ViewerPane.Children.Add(vc.Control);
             vc.DisplayViewer.Clear();
             vc.DisplayViewer.Add(vc.DisplayViewer.LiveDisplaySource);
-            vc.DisplayViewer.AlwaysAutoScaleIntensity = true;
-            vc.DisplayViewer.ShowExposureEndedTimeStamp = false;
-            vc.DisplayViewer.ShowExposureStartedTimeStamp = false;
-            vc.DisplayViewer.ShowFrameTrackingNumber = false;
-            vc.DisplayViewer.ShowGateTrackingDelay = false;
-            vc.DisplayViewer.ShowGateTrackingWidth = false;
-            vc.DisplayViewer.ShowModulationTrackingPhase = false;
-            vc.DisplayViewer.ShowStampedExposureDuration = false;
+            SetUpDisplayParams(vc);
 
             // Assign the Drag/Drop Manager to the CurrentSettings window
             new ListViewDragDropManager<FilterSetting>(this.CurrentSettings);
 
             // Populate the Filter Selection Box and Jump Selection Box with the available filters
             // Set the initial state of the instrument pane
+            
             this._fw_inst_labels = new List<TextBlock> { F0, F1, F2, F3, F4, F5, F6, F7 };
-            List<Filter> set = _wi.GetOrderedSet();
+            List<string> set = _wi.GetOrderedSet();
             for(int i = 0; i < set.Count; i++)
             {
-                FilterSelectionBox.Items.Add(set[i].ToString());
-                JumpSelectionBox.Items.Add(set[i].ToString());
-                _fw_inst_labels[i].Text = set[i].ToString();
+                FilterSelectionBox.Items.Add(set[i]);
+                JumpSelectionBox.Items.Add(set[i]);
+                _fw_inst_labels[i].Text = set[i];
             }
-
+            
             // Set the initial Manual Control setting indicator
             AutomatedControlDescription.BorderBrush = Brushes.Transparent;
             ManualControlDescription.BorderBrush = Brushes.Gray;
@@ -127,6 +121,22 @@ namespace FilterWheelControl
             _elapsedTimeClock = new System.Windows.Threading.DispatcherTimer();
             _elapsedTimeClock.Tick += new EventHandler(elapsedTimeClock_Tick);
             _elapsedTimeClock.Interval = new TimeSpan(0,0,1); // updates every 1 second
+        }
+
+        /// <summary>
+        /// Sets the initial values for display properties in the IDisplayViewer on the FilterWheelControl panel.
+        /// </summary>
+        /// <param name="vc">The IDisplayViewerControl associated with the IDisplayViewer on the FilterWheelControl panel.</param>
+        private void SetUpDisplayParams(IDisplayViewerControl vc)
+        {
+            vc.DisplayViewer.AlwaysAutoScaleIntensity = true;
+            vc.DisplayViewer.ShowExposureEndedTimeStamp = false;
+            vc.DisplayViewer.ShowExposureStartedTimeStamp = false;
+            vc.DisplayViewer.ShowFrameTrackingNumber = false;
+            vc.DisplayViewer.ShowGateTrackingDelay = false;
+            vc.DisplayViewer.ShowGateTrackingWidth = false;
+            vc.DisplayViewer.ShowModulationTrackingPhase = false;
+            vc.DisplayViewer.ShowStampedExposureDuration = false;
         }
 
         #endregion // Initialize Control Panel
@@ -554,7 +564,6 @@ namespace FilterWheelControl
             if (_transitioning)
             {
                 _transitioning = false;
-                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
                 _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000); // convert to ms
             }
             
@@ -618,7 +627,7 @@ namespace FilterWheelControl
                 _exp.SetValue(CameraSettings.ShutterTimingExposureTime, rotation_time * 1000);
 
                 // Rotate the filter wheel
-                Thread rotate = new Thread(_wi.RotateToFilter);
+                Thread rotate = new Thread(RotateToSelectedFilter);
                 rotate.Start(_current_setting.FilterType);
             }
             // Otherwise, set the iteration counter to zero and update the exposure time
@@ -654,7 +663,6 @@ namespace FilterWheelControl
             if (_transitioning)
             {
                 Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("Rotating to " + _current_setting.FilterType)));
-                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
             }
             else
             {
@@ -719,21 +727,23 @@ namespace FilterWheelControl
                     PleaseHaltCapturingMessage();
                 else
                 {
-                    Thread rotate_ccw = new Thread(CCWRotate);
-                    rotate_ccw.Start();
+                    Thread ccw_rotate = new Thread(RotateCounterClockwise);
+                    ccw_rotate.Start();
                 }
             }
         }
 
         /// <summary>
-        /// Handles the wheel rotation and instrument panel updating for the manual control counterclockwise rotation button
+        /// A separate thread that controls counter clockwise filter wheel rotation.  
         /// </summary>
-        private void CCWRotate()
+        private void RotateCounterClockwise()
         {
-            lock (_fw_movement_lock)
+            lock (_fw_rotation_lock)
             {
+                Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateCounterClockwise()));
                 Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentRotate));
-                _wi.RotateCounterClockwise();
+                int down_time = Convert.ToInt16(WheelInterface._TIME_BETWEEN_ADJACENT_FILTERS * 1000);
+                Thread.Sleep(down_time);
                 Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder)); 
             }
         }
@@ -749,22 +759,24 @@ namespace FilterWheelControl
                     PleaseHaltCapturingMessage();
                 else
                 {
-                    Thread rotate_cw = new Thread(CWRotate);
-                    rotate_cw.Start();
+                    Thread cw_rotate = new Thread(RotateClockwise);
+                    cw_rotate.Start();
                 }
             }
         }
 
         /// <summary>
-        /// Handles the wheel rotation and instrument panel updating for the manual control clockwise rotation button
+        /// A separate thread that controls clockwise filter wheel rotation.  
         /// </summary>
-        private void CWRotate()
+        private void RotateClockwise()
         {
-            lock (_fw_movement_lock)
+            lock (_fw_rotation_lock)
             {
+                Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateClockwise()));
                 Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentRotate));
-                _wi.RotateClockwise();
-                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder)); 
+                int down_time = Convert.ToInt16(WheelInterface._TIME_BETWEEN_ADJACENT_FILTERS * 1000);
+                Thread.Sleep(down_time);
+                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder));
             }
         }
 
@@ -782,8 +794,8 @@ namespace FilterWheelControl
                     if (JumpSelectionBox.SelectedIndex != -1)
                     {
                         string selected = (string)JumpSelectionBox.SelectedValue;
-                        Thread jump_to = new Thread(Jump);
-                        jump_to.Start(selected);
+                        Thread jump = new Thread(RotateToSelectedFilter);
+                        jump.Start(selected);
                     }
                     else
                         MessageBox.Show("Please select a filter to jump to.");
@@ -793,14 +805,16 @@ namespace FilterWheelControl
         }
 
         /// <summary>
-        /// Handles the wheel rotation and instrument panel updating for the manual control clockwise rotation button
+        /// A separate thread that controls clockwise filter wheel rotation.  
         /// </summary>
-        private void Jump(object f_type)
+        private void RotateToSelectedFilter(object f)
         {
-            lock (_fw_movement_lock)
+            lock (_fw_rotation_lock)
             {
+                int down_time = Convert.ToInt16(_wi.TimeToFilter((string)f)) * 1000;
+                Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateToFilter((string)f)));
                 Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentRotate));
-                _wi.RotateToFilter((string)f_type);
+                Thread.Sleep(down_time);
                 Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder));
             }
         }
@@ -822,11 +836,12 @@ namespace FilterWheelControl
         /// </summary>
         public void UpdateFWInstrumentOrder()
         {
-            List<Filter> newOrder = _wi.GetOrderedSet();
+            List<string> newOrder = _wi.GetOrderedSet();
+
             lock (_fw_inst_lock)
             {
                 for (int i = 0; i < _fw_inst_labels.Count(); i++)
-                    _fw_inst_labels[i].Text = newOrder[i].GetFilterType();
+                    _fw_inst_labels[i].Text = newOrder[i];
             }
         }
 
