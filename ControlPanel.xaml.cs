@@ -47,8 +47,8 @@ namespace FilterWheelControl
         private List<TextBlock> _fw_inst_labels; // holds the labels that make up the filter wheel instrument on the instrument panel, 0 is the current filter, moving clockwise
         private readonly object _fw_inst_lock;
         private readonly object _fw_rotation_lock;
-        System.Windows.Threading.DispatcherTimer _elapsedTimeClock;
-        DateTime _runStart;
+        private System.Windows.Threading.DispatcherTimer _elapsedTimeClock;
+        private DateTime _runStart;
         
         // Instance variables for the Current Settings List
         private bool _delete_allowed;
@@ -58,7 +58,9 @@ namespace FilterWheelControl
         private FilterSetting _current_setting;
         private bool _transitioning;
         private int _iteration;
-        WheelInterface _wi;
+        private WheelInterface _wi;
+        private readonly object _event_handler_lock;
+        private int _start_count;
 
         // Custom event handlers
         EventHandler<ImageDataSetReceivedEventArgs> _IDS_received_automated;
@@ -90,6 +92,8 @@ namespace FilterWheelControl
             this._wi = new WheelInterface();
             this._settings_list = new CurrentSettingsList(_wi);
             this._file_mgr = fileMgr;
+            this._event_handler_lock = new object();
+            this._start_count = 0;
             
             // Set up the small viewer and capture view functionality in Main View
             IDisplayViewerControl vc = dispMgr.CreateDisplayViewerControl();
@@ -102,10 +106,17 @@ namespace FilterWheelControl
             new ListViewDragDropManager<FilterSetting>(this.CurrentSettings);
 
             // Populate the Filter Selection Box and Jump Selection Box with the available filters
-            // Set the initial state of the instrument pane
-            
+            // Set the initial state of the instrument panel
             this._fw_inst_labels = new List<TextBlock> { F0, F1, F2, F3, F4, F5, F6, F7 };
             List<string> set = _wi.GetOrderedSet();
+            if (set == null)
+                _wi.Home();
+            while (set == null)
+            {
+                Thread.Sleep(1000);
+                set = _wi.GetOrderedSet();
+            }
+            
             for(int i = 0; i < set.Count; i++)
             {
                 FilterSelectionBox.Items.Add(set[i]);
@@ -116,6 +127,13 @@ namespace FilterWheelControl
             // Set the initial Manual Control setting indicator
             AutomatedControlDescription.BorderBrush = Brushes.Transparent;
             ManualControlDescription.BorderBrush = Brushes.Gray;
+
+            // Hook up run and acquire to Manual Control event handlers.
+            // Create new custom event handlers
+            _experiment_complete_manual = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_ManualControl);
+            _experiment_start_manual = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_ManualControl);
+            _exp.ExperimentStarted += _experiment_start_manual;
+            _exp.ExperimentCompleted += _experiment_complete_manual;
 
             // Set up the elapsed time timer
             _elapsedTimeClock = new System.Windows.Threading.DispatcherTimer();
@@ -154,6 +172,10 @@ namespace FilterWheelControl
             // Update UI to reflect option change
             AutomatedControlDescription.BorderBrush = Brushes.Transparent;
             ManualControlDescription.BorderBrush = Brushes.Gray;
+            JumpButton.IsHitTestVisible = true;
+            CCW.IsHitTestVisible = true;
+            CW.IsHitTestVisible = true;
+            JumpSelectionBox.IsHitTestVisible = true;
 
             // Create new custom event handlers
             _experiment_complete_manual = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_ManualControl);
@@ -165,11 +187,8 @@ namespace FilterWheelControl
             _exp.ExperimentStarted -= _experiment_start_automated;
 
             // Connect preview and acquire to manual event handlers
-            // Null the previous handlers to help with Garbage Collection
-            _exp.ExperimentStarted += null;
-            _exp.ExperimentCompleted += null;
-            _exp.ExperimentStarted += _exp_ExperimentStarted_ManualControl;
-            _exp.ExperimentCompleted += _exp_ExperimentCompleted_ManualControl;
+            _exp.ExperimentStarted += _experiment_start_manual;
+            _exp.ExperimentCompleted += _experiment_complete_manual;
         }
 
         /// <summary>
@@ -185,6 +204,10 @@ namespace FilterWheelControl
                 // Update UI to reflect option change
                 ManualControlDescription.BorderBrush = Brushes.Transparent;
                 AutomatedControlDescription.BorderBrush = Brushes.Gray;
+                JumpButton.IsHitTestVisible = false;
+                CCW.IsHitTestVisible = false;
+                CW.IsHitTestVisible = false;
+                JumpSelectionBox.IsHitTestVisible = false;
 
                 // Create new custom event handlers
                 _IDS_received_automated = new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived_Automated);
@@ -196,10 +219,6 @@ namespace FilterWheelControl
                 _exp.ExperimentStarted -= _exp_ExperimentStarted_ManualControl;
 
                 // Hook up preview and acquire to new event handlers
-                // Null the previous event handlers to help with Garbage Collection
-                _exp.ImageDataSetReceived += null;
-                _exp.ExperimentCompleted += null;
-                _exp.ExperimentStarted += null;
                 _exp.ImageDataSetReceived += _IDS_received_automated;
                 _exp.ExperimentCompleted += _experiment_complete_automated;
                 _exp.ExperimentStarted += _experiment_start_automated;
@@ -498,6 +517,11 @@ namespace FilterWheelControl
 
                 try
                 {
+                    if (!WheelInterface._LOADED_FILTERS.Contains(vals[0]))
+                    {
+                        MessageBox.Show("This list contains filters that are no longer in the wheel.  Please rebuild your filter settings using the current filter set.");
+                        return;
+                    }
                     _settings_list.Add((object)vals[0], vals[1], vals[2], (bool)TriggerSlewAdjust.IsChecked);
                 }
                 catch (IndexOutOfRangeException)
@@ -566,7 +590,7 @@ namespace FilterWheelControl
                 _transitioning = false;
                 _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000); // convert to ms
             }
-            
+
             // Update the iteration counter and _current_setting if necessary
             if (_iteration == _current_setting.NumExposures)
             {
@@ -577,7 +601,8 @@ namespace FilterWheelControl
                 _iteration++;
 
             // Update the instrument panel
-            UpdateInstrumentPanel();
+            UpdateInstrumentPanel(); 
+            
         }
 
         /// <summary>
@@ -588,27 +613,34 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void _exp_ExperimentStarted_Automated(object sender, ExperimentStartedEventArgs e)
         {
-            // Don't start acquiring if there are no settings in the list.
-            if (_settings_list.GetSettingsCollection().Count() == 0)
+            if (_start_count == 0)
             {
-                MessageBox.Show("Please provide some filter setting to iterate through, or switch to Manual Control.");
-                _exp.Stop();
-            }
-            else
-            {
-                // Disable changes to the settings list and control system and retrieve the first setting
-                Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
-                _current_setting = _settings_list.GetCaptureSettings();
-                ManualControl.IsHitTestVisible = false;
+                // Update the _start_count variable to account for the double-call on experiment start :(
+                _start_count = 1;
 
-                // Set up the first exposure time, wheel position, and update the instrument panel to reflect this
-                _transitioning = false;
-                SetNextExposureTime();
-                UpdateInstrumentPanel();
+                // Don't start acquiring if there are no settings in the list.
+                if (_settings_list.GetSettingsCollection().Count() == 0)
+                {
+                    MessageBox.Show("Please provide some filter setting to iterate through, or switch to Manual Control.");
+                    _exp.Stop();
+                }
+                else
+                {
+                    // Disable changes to the settings list and control system and retrieve the first setting
+                    Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
+                    _current_setting = _settings_list.GetCaptureSettings();
+                    ManualControl.IsHitTestVisible = false;
 
-                // Initialize other environment variables
-                StartElapsedTimeClock();
+                    // Set up the first exposure time, wheel position, and update the instrument panel to reflect this
+                    _transitioning = false;
+                    SetNextExposureTime();
+                    UpdateInstrumentPanel();
+
+                    // Initialize other environment variables
+                    StartElapsedTimeClock();
+                }  
             }
+            
         }
 
         /// <summary>
@@ -617,7 +649,7 @@ namespace FilterWheelControl
         private void SetNextExposureTime()
         {
             // If we need to rotate, set up to do so
-            if (_wi.GetCurrentFilter().ToString() != _current_setting.FilterType)
+            if (_wi.GetCurrentFilter() != _current_setting.FilterType)
             {
                 _iteration = 0;
                 _transitioning = true;
@@ -647,10 +679,10 @@ namespace FilterWheelControl
         public void _exp_ExperimentCompleted_Automated(object sender, ExperimentCompletedEventArgs e)
         {
             _elapsedTimeClock.Stop();
-            Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
             Application.Current.Dispatcher.BeginInvoke(new Action(EnableFilterSettingsChanges));
             Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("")));
             ManualControl.IsHitTestVisible = true;
+            _start_count = 0;
         }
 
         /// <summary>
@@ -693,7 +725,10 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void _exp_ExperimentStarted_ManualControl(object sender, ExperimentStartedEventArgs e)
         {
-            AutomatedControl.IsHitTestVisible = false;
+            lock (_event_handler_lock)
+            {
+                AutomatedControl.IsHitTestVisible = false; 
+            }
         }
 
         /// <summary>
@@ -703,10 +738,62 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void _exp_ExperimentCompleted_ManualControl(object sender, ExperimentCompletedEventArgs e)
         {
-            AutomatedControl.IsHitTestVisible = true;
+            lock (_event_handler_lock)
+            {
+                AutomatedControl.IsHitTestVisible = true; 
+            }
         }
 
         #endregion // Manual Event Handlers
+
+        #region Rotation Threads
+
+        /// <summary>
+        /// A separate thread that controls clockwise filter wheel rotation.  
+        /// </summary>
+        private void RotateToSelectedFilter(object f)
+        {
+            lock (_fw_rotation_lock)
+            {
+                int down_time = Convert.ToInt16(_wi.TimeToFilter((string)f)) * 1000;
+                Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateToFilter((string)f)));
+                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
+                Thread.Sleep(down_time);
+                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
+            }
+        }
+
+        /// <summary>
+        /// A separate thread that controls counter clockwise filter wheel rotation.  
+        /// </summary>
+        private void RotateCounterClockwise()
+        {
+            lock (_fw_rotation_lock)
+            {
+                Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateCounterClockwise()));
+                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
+                int down_time = Convert.ToInt16(WheelInterface._TIME_BETWEEN_ADJACENT_FILTERS * 1000);
+                Thread.Sleep(down_time);
+                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
+            }
+        }
+
+        /// <summary>
+        /// A separate thread that controls clockwise filter wheel rotation.  
+        /// </summary>
+        private void RotateClockwise()
+        {
+            lock (_fw_rotation_lock)
+            {
+                Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateClockwise()));
+                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
+                int down_time = Convert.ToInt16(WheelInterface._TIME_BETWEEN_ADJACENT_FILTERS * 1000);
+                Thread.Sleep(down_time);
+                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
+            }
+        }
+
+        #endregion // Rotation Threads
 
         #region Manual Control Buttons
 
@@ -734,21 +821,6 @@ namespace FilterWheelControl
         }
 
         /// <summary>
-        /// A separate thread that controls counter clockwise filter wheel rotation.  
-        /// </summary>
-        private void RotateCounterClockwise()
-        {
-            lock (_fw_rotation_lock)
-            {
-                Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateCounterClockwise()));
-                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentRotate));
-                int down_time = Convert.ToInt16(WheelInterface._TIME_BETWEEN_ADJACENT_FILTERS * 1000);
-                Thread.Sleep(down_time);
-                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder)); 
-            }
-        }
-
-        /// <summary>
         /// Sends a signal to the filter wheel to rotate the wheel clockwise (w.r.t. the camera)
         /// </summary>
         private void CW_Click(object sender, RoutedEventArgs e)
@@ -762,21 +834,6 @@ namespace FilterWheelControl
                     Thread cw_rotate = new Thread(RotateClockwise);
                     cw_rotate.Start();
                 }
-            }
-        }
-
-        /// <summary>
-        /// A separate thread that controls clockwise filter wheel rotation.  
-        /// </summary>
-        private void RotateClockwise()
-        {
-            lock (_fw_rotation_lock)
-            {
-                Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateClockwise()));
-                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentRotate));
-                int down_time = Convert.ToInt16(WheelInterface._TIME_BETWEEN_ADJACENT_FILTERS * 1000);
-                Thread.Sleep(down_time);
-                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder));
             }
         }
 
@@ -801,21 +858,6 @@ namespace FilterWheelControl
                         MessageBox.Show("Please select a filter to jump to.");
 
                 }
-            }
-        }
-
-        /// <summary>
-        /// A separate thread that controls clockwise filter wheel rotation.  
-        /// </summary>
-        private void RotateToSelectedFilter(object f)
-        {
-            lock (_fw_rotation_lock)
-            {
-                int down_time = Convert.ToInt16(_wi.TimeToFilter((string)f)) * 1000;
-                Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateToFilter((string)f)));
-                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentRotate));
-                Thread.Sleep(down_time);
-                Application.Current.Dispatcher.Invoke(new Action(UpdateFWInstrumentOrder));
             }
         }
 

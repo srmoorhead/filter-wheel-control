@@ -360,7 +360,7 @@ namespace FilterWheelControl
         }
 
         /// <summary>
-        /// 
+        /// Loads a file containing filter and timing information into the current settings list.
         /// </summary>
         public string CurrentSettingsLoad()
         {

@@ -6,7 +6,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Threading;
 
-using FilterWheelSimulator;
 using Filters;
 using System.IO.Ports;
 
@@ -16,13 +15,14 @@ namespace FilterWheelControl
     {
         #region Static Variables
 
-        private static readonly List<string> _LOADED_FILTERS = new List<string> { "u", "g", "r", "i", "z", "BG40", "DARK", "NOFI" };
+        public static readonly List<string> _LOADED_FILTERS = new List<string> { "u'", "g'", "r'", "i'", "z'", "EMPTY", "BLOCK", "BG40" };
         public static readonly double _TIME_BETWEEN_ADJACENT_FILTERS = 1.5; // in seconds
 
         private static readonly string _PORT_NAME = "COM4";
         private static readonly int _BAUD_RATE = 9600;
 
         private static readonly string _MOVE = "mv";
+        private static readonly string _HOME = "hm";
         private static readonly string _INQUIRE = "?";
 
         private static readonly char[] _DELIMITERS = { '=', ' ', '>', '\r', '\n' };
@@ -133,6 +133,20 @@ namespace FilterWheelControl
             {
                 OpenPort();
                 _fw.WriteLine(_LOADED_FILTERS.IndexOf((string)type) + _MOVE + "\r");
+                ClosePort();
+            }
+            catch (Exception e)
+            {
+                ProvideErrorInformation(e.Message);
+            }
+        }
+
+        public void Home()
+        {
+            try
+            {
+                OpenPort();
+                _fw.WriteLine(_HOME + "\r");
                 ClosePort();
             }
             catch (Exception e)
