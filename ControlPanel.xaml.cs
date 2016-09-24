@@ -34,6 +34,9 @@ namespace FilterWheelControl
         private static readonly string NumFramesTextbox_DEFAULT_TEXT = "Num"; // Change this string if you wish to change the text in the NumFrames textbox
         private static string INSTRUMENT_PANEL_DISPLAY_FORMAT = "{0}\t|  {1}\t|  {2} of {3}";  // {0} = filter type, {1} = exposure time, {2} = this iteration, {3} = total iterations
 
+        public static readonly string _TRIGGER_ADJUSTED_STRING = "Trigger Slew Adjusted";
+        public static readonly string _TRIGGER_UNALTERED_STRING = "Exposure Times Unaltered";
+
         #endregion // Static Variables
 
         #region Instance Variables
@@ -222,6 +225,8 @@ namespace FilterWheelControl
             _exp.ExperimentCompleted -= _experiment_complete_manual;
             _exp.ExperimentStarted -= _experiment_start_manual;
 
+            NullAllEventHandlers();
+
             // Create new event handlers for preview and acquire
             _experiment_complete_manual = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_ManualControl);
             _experiment_start_manual = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_ManualControl);
@@ -258,6 +263,8 @@ namespace FilterWheelControl
                 _exp.ExperimentCompleted -= _experiment_complete_automated;
                 _exp.ExperimentStarted -= _experiment_start_automated;
 
+                NullAllEventHandlers();
+
                 // Create new event handlers for preview and acquire
                 _IDS_received_automated = new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived_Automated);
                 _experiment_complete_automated = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_Automated);
@@ -272,6 +279,21 @@ namespace FilterWheelControl
             {
                 MessageBox.Show(exp.Message);
             }
+        }
+
+        /// <summary>
+        /// Nulls all the automated and manual control event handlers to aid with garbage collection.
+        /// This is a response to the Contract dispose error that occurs on transition between manual and automated control
+        /// if acquisition has been occurring already in this observing session.
+        /// </summary>
+        private void NullAllEventHandlers()
+        {
+            // Null all event handlers
+            _IDS_received_automated = null;
+            _experiment_complete_automated = null;
+            _experiment_start_automated = null;
+            _experiment_complete_manual = null;
+            _experiment_start_manual = null;
         }
 
         #endregion // Manual/Automated Control
@@ -519,7 +541,7 @@ namespace FilterWheelControl
         /// </summary>
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
-            _settings_list.CurrentSettingsSave();
+            _settings_list.CurrentSettingsSave((bool)TriggerSlewAdjust.IsChecked);
         }
 
         /// <summary>
@@ -555,10 +577,27 @@ namespace FilterWheelControl
         {
             string[] lineBreaks = { "\r\n" };
             string[] lines = toBeRead.Split(lineBreaks, StringSplitOptions.RemoveEmptyEntries);
-            foreach (string line in lines)
+
+            int i;
+
+            // Deterime how to interpret the first line.  If it has trigger information, start reading filter settings on lines[1]
+            if (lines[0] == _TRIGGER_ADJUSTED_STRING)
+            {
+                TriggerSlewAdjust.IsChecked = true;
+                i = 1;
+            }
+            else if (lines[0] == _TRIGGER_UNALTERED_STRING)
+            {
+                TriggerSlewAdjust.IsChecked = false;
+                i = 1;
+            }
+            else
+                i = 0;
+
+            while (i < lines.Length)
             {
                 char[] tabs = { '\t' };
-                string[] vals = line.Split(tabs);
+                string[] vals = lines[i].Split(tabs);
 
                 try
                 {
@@ -576,6 +615,7 @@ namespace FilterWheelControl
                 {
                     MessageBox.Show("There was a problem reading in your file.  Please ensure the file hasn't been corrupted or edited.");
                 }
+                i++;
             }
         }
 
@@ -647,7 +687,7 @@ namespace FilterWheelControl
             }
             else
                 _iteration++;
-
+            
             // Update the instrument panel
             UpdateInstrumentPanel();
         }
@@ -672,6 +712,7 @@ namespace FilterWheelControl
                 Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
                 _current_setting = _settings_list.GetCaptureSettings();
                 ManualControl.IsHitTestVisible = false;
+                _settings_list.CurrentSettingsSave((bool)TriggerSlewAdjust.IsChecked, RetrieveFileNameInfo());
 
                 // Set up the first exposure time, wheel position, and update the instrument panel to reflect this
                 _transitioning = false;
@@ -681,8 +722,6 @@ namespace FilterWheelControl
                 // Initialize other environment variables
                 StartElapsedTimeClock();
             }  
-            
-            
         }
 
         /// <summary>
@@ -692,7 +731,7 @@ namespace FilterWheelControl
         {
             // Double check that we know where we are.
             string cur = _wi.GetCurrentFilter();
-            if (cur.Equals(null) || cur != _current_setting.FilterType)
+            if (cur.Equals(null))
                 StopAll();
             
             // If we need to rotate, set up to do so
@@ -728,9 +767,8 @@ namespace FilterWheelControl
             _elapsedTimeClock.Stop();
             Application.Current.Dispatcher.BeginInvoke(new Action(EnableFilterSettingsChanges));
             Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("")));
-            Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdateFWInstrumentOrder()));
             ManualControl.IsHitTestVisible = true;
-            _wi.ClosePort();
+            _wi.Home();
         }
 
         /// <summary>
@@ -769,10 +807,95 @@ namespace FilterWheelControl
         {
             _exp.Stop();
             _wi.Home();
-            MessageBox.Show("Acquisition has been halted.  There has been an error communicating with the filter wheel.\n\nCommon causes include:\n\nBad usb/ethernet connection.\nLoss of power to filter wheel motor.\nActs of God.\n\n");
+            MessageBox.Show("Acquisition has been halted.  There has been an error communicating with the filter wheel.\n\nCommon causes include:\n\nBad usb/ethernet connection.\nLoss of power to filter wheel motor.\n");
         }
 
         #endregion // Automated Event Handlers
+
+        #region Filename Info
+
+        /// <summary>
+        /// Returns the string representing the user-specified file name as entered in the LightField settings pane.
+        /// Note that this DOES NOT include the file type (i.e. .spe, .fits, etc.).
+        /// </summary>
+        /// <returns>The string, including directory, of the file name</returns>
+        private string RetrieveFileNameInfo()
+        {
+            string directory = _exp.GetValue(ExperimentSettings.FileNameGenerationDirectory).ToString();
+            string base_name = _exp.GetValue(ExperimentSettings.FileNameGenerationBaseFileName).ToString();
+ 
+            string space = " ";
+            if (_exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate) != null)
+            {
+                if ((bool)_exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate))
+                {
+                    if ((FileFormatLocation)_exp.GetValue(ExperimentSettings.FileNameGenerationFileFormatLocation) == FileFormatLocation.Prefix)
+                        base_name = GetFormattedDate((DateFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationDateFormat)) + space + base_name;
+                    else
+                        base_name += space + GetFormattedDate((DateFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationDateFormat));
+                }
+            }
+ 
+            if (_exp.GetValue(ExperimentSettings.FileNameGenerationAttachTime) != null)
+            {
+                if ((bool)_exp.GetValue(ExperimentSettings.FileNameGenerationAttachTime))
+                {
+                    if ((FileFormatLocation)_exp.GetValue(ExperimentSettings.FileNameGenerationFileFormatLocation) == FileFormatLocation.Prefix)
+                        base_name = GetFormattedTime((TimeFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationTimeFormat)) + space + base_name;
+                    else
+                        base_name += space + GetFormattedTime((TimeFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationTimeFormat));
+                }
+            }
+            return directory + "\\" + base_name;
+        }
+ 
+        /// <summary>
+        /// Given a time format, returns the current time in that format
+        /// </summary>
+        /// <param name="format">The TimeFormat object representing the desired format</param>
+        /// <returns>The current time in the given format</returns>
+        private string GetFormattedTime(TimeFormat format)
+        {
+            DateTime now = DateTime.Now;
+ 
+            switch (format)
+            {
+                case TimeFormat.hh_mm_ss_24hr:
+                    return now.ToString("HH_mm_ss");
+                default:
+                    return now.ToString("hh_mm_ss_tt", System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+ 
+        /// <summary>
+        /// Given a DateFormat, returns the date formatted in that manner.
+        /// </summary>
+        /// <param name="format">A DateFormat object representing how the date should be formatted</param>
+        /// <returns>A string of the date represented in the given format</returns>
+        private string GetFormattedDate(DateFormat format)
+        {
+            DateTime today = DateTime.Today;
+                 
+            switch (format)
+            {
+                case DateFormat.dd_mm_yyyy:
+                    return today.ToString("dd-MM-yyyy");
+                case DateFormat.dd_Month_yyyy: 
+                    return today.ToString("dd-MMMM-yyyy");
+                case DateFormat.mm_dd_yyyy:
+                    return today.ToString("MM-dd-yyyy");
+                case DateFormat.Month_dd_yyyy:
+                    return today.ToString("MMMM-dd-yyyy");
+                case DateFormat.yyyy_mm_dd:
+                    return today.ToString("yyyy-MM-dd");
+                case DateFormat.yyyy_Month_dd:
+                    return today.ToString("yyyy-MMMM-dd");
+                default:
+                    return today.ToString("yyyy-MM-dd");
+            }
+        }
+
+        #endregion // Filename Info
 
         #region Manual Event Handlers
 

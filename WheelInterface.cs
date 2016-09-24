@@ -346,6 +346,24 @@ namespace FilterWheelControl
             }
         }
 
+        /// <summary>
+        /// Access the value of _TIME_BETWEEN_ADJACENT_FILTERS
+        /// </summary>
+        /// <returns>The value of _TIME_BETWEEN_ADJACENT_FILTERS</returns>
+        public double TimeBetweenFilters()
+        {
+            return _TIME_BETWEEN_ADJACENT_FILTERS;
+        }
+
+        /// <summary>
+        /// Access the number of filters in the wheel.
+        /// </summary>
+        /// <returns>The number of filters in the _LOADED_FILTERS list (8).</returns>
+        public int NumFilters()
+        {
+            return _LOADED_FILTERS.Count;
+        }
+
         #endregion // Accessors
 
     }

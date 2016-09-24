@@ -38,16 +38,17 @@
             </Grid.ColumnDefinitions>
             <ComboBox x:Name="FilterSelectionBox" HorizontalAlignment="Left" Margin="90,0,0,0" VerticalAlignment="Top" Width="75" ToolTip="Select a filter."/>
             <Label x:Name="AddFilterLabel" Content="Add Filter:" HorizontalAlignment="Left" VerticalAlignment="Top"/>
-            <TextBox x:Name="InputTime" KeyDown="InputTime_KeyDown" GotFocus="InputTime_GotFocus" LostFocus="InputTime_LostFocus" HorizontalAlignment="Left"  Height="23" Margin="180,0,0,0" TextWrapping="Wrap" Text="Exposure Time (s)" VerticalAlignment="Top" Width="110" Grid.ColumnSpan="2" ToolTip="Enter an exposure time in seconds (decimal values are allowed)."/>
+            <TextBox x:Name="InputTime" KeyDown="InputTime_KeyDown" GotFocus="InputTime_GotFocus" LostFocus="InputTime_LostFocus" HorizontalAlignment="Left"  Height="23" Margin="180,0,0,0" TextWrapping="Wrap" Text="Exposure Time (s)" VerticalAlignment="Top" Width="95" Grid.ColumnSpan="2" ToolTip="Enter an exposure time in seconds (decimal values are allowed)."/>
             <TextBox x:Name="NumFrames" KeyDown="NumFrames_KeyDown" GotFocus="NumFrames_GotFocus" LostFocus="NumFrames_LostFocus"  HorizontalAlignment="Left" Height="23" Margin="101,0,0,0" TextWrapping="Wrap" Text="Num" VerticalAlignment="Top" Width="40" Grid.Column="1" ToolTip="Enter a number of consecutive frames to capture"/>
             <Button x:Name="AddButton" Content="Add" Click="AddButton_Click" HorizontalAlignment="Left" Margin="156,0,0,0" VerticalAlignment="Top" Width="75" Grid.Column="1" ToolTip="Add the filter, exposure time, and number of consecutive captures to the Current Filter Settings list."/>
+            <Label Content="s" Grid.Column="1" HorizontalAlignment="Left" Margin="79,1,0,0" VerticalAlignment="Top" Height="25"/>
         </Grid>
         <Label Content="Manual Wheel Controls" HorizontalAlignment="Left" Margin="477,319,0,0" VerticalAlignment="Top"/>
         <Grid Margin="330,165,45,402">
             <RadioButton x:Name="ManualControl" GroupName="Controller" Content="Manual Control" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,64,0,0" IsChecked="True" ToolTip="Enable manual control of the filter wheel." Click="ManualControl_Click"/>
             <RadioButton x:Name="AutomatedControl" GroupName="Controller" Content="Automated Control" HorizontalAlignment="Left" VerticalAlignment="Top" IsChecked="False" ToolTip="Enable automated control of the filter wheel." Click="AutomatedControl_Click"/>
             <Label x:Name="AutomatedControlDescription" Content="LightField will iterate through a provided sequence of filters and &#xD;&#xA;exposure times without the need for observer intervention." HorizontalAlignment="Left" Margin="40,18,0,0" VerticalAlignment="Top" Width="375" Height="43" BorderBrush="Gray" BorderThickness="4,0,0,0"/>
-            <Label x:Name="ManualControlDescription" Content="LighField will operate with no alterations to filter wheel position or &#xA;exposure times.  All desired changes must be input in real time." HorizontalAlignment="Left" Margin="40,83,0,0" VerticalAlignment="Top" Width="375" Height="43" BorderBrush="Gray" BorderThickness="4,0,0,0"/>
+            <Label x:Name="ManualControlDescription" Content="LightField will operate with no alterations to filter wheel position or &#xA;exposure times.  All desired changes must be input in real time." HorizontalAlignment="Left" Margin="40,83,0,0" VerticalAlignment="Top" Width="375" Height="43" BorderBrush="Gray" BorderThickness="4,0,0,0"/>
         </Grid>
         <Grid Margin="330,355,45,321">
             <Button x:Name="CCW" Content="Rotate CCW" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Click="CCW_Click" ToolTip="Rotate the filter wheel counterclockwise one position w.r.t. the camera."/>

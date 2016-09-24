@@ -6,6 +6,8 @@ using System.Windows; // for MessageBox
 using System.Collections.ObjectModel; // for ObservableCollection
 using System.IO;
 
+using PrincetonInstruments.LightField.AddIns;
+
 namespace FilterWheelControl
 {
     public class FilterSetting
@@ -326,28 +328,40 @@ namespace FilterWheelControl
         /// Writes a string of content to a .dat file
         /// </summary>
         /// <param name="content">The string of information to be written to the file</param>
-        public void CurrentSettingsSave()
+        /// <param name="filename">The location to save the file.  Can be provided or null.  If null, the user will be prompted.</param>
+        public void CurrentSettingsSave(bool adjusted, string filename = null)
         {
             string content = this.GenerateFileContent();
+
+            // Add the adjusted flag
+            if (adjusted)
+                content = ControlPanel._TRIGGER_ADJUSTED_STRING + "\r\n" + content;
+            else
+                content = ControlPanel._TRIGGER_UNALTERED_STRING + "\r\n" + content;
+            
             try
             {
-
-                // Configure save file dialog box
-                Microsoft.Win32.SaveFileDialog dlg = new Microsoft.Win32.SaveFileDialog();
-                dlg.FileName = "FilterSettings"; // Default file name
-                dlg.DefaultExt = ".dat"; // Default file extension
-                dlg.Filter = "Filter data files (.dat)|*.dat"; // Filter files by extension
-
-                // Show save file dialog box
-                Nullable<bool> result = dlg.ShowDialog();
-
-                // Process save file dialog box results
-                if (result == true)
+                // If no filename was given, ask the user to provide one
+                if (filename == null)
                 {
-                    // Save document
-                    string filename = dlg.FileName;
+                    // Configure save file dialog box
+                    Microsoft.Win32.SaveFileDialog dlg = new Microsoft.Win32.SaveFileDialog();
+                    dlg.FileName = "FilterSettings"; // Default file name
+                    dlg.DefaultExt = ".dat"; // Default file extension
+                    dlg.Filter = "Filter data files (.dat)|*.dat"; // Filter files by extension
 
-                    FileStream output = File.Create(filename);
+                    Nullable<bool> result = dlg.ShowDialog();
+
+                    if (result == true)
+                        filename = dlg.FileName;
+                }
+                else
+                    filename += "_FilterSettings.dat";
+                
+                // Now, if we've got a filename, save the file.
+                if (filename != null)
+                {
+                    FileStream output = File.Create(filename.ToString());
                     Byte[] info = new UTF8Encoding(true).GetBytes(content);
 
                     output.Write(info, 0, info.Length);
