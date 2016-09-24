@@ -64,6 +64,9 @@ namespace FilterWheelControl
         EventHandler<ExperimentStartedEventArgs> _experiment_start_automated;
         EventHandler<ExperimentCompletedEventArgs> _experiment_complete_manual;
         EventHandler<ExperimentStartedEventArgs> _experiment_start_manual;
+
+        // Instance variables for constructor
+        private bool _did_load;
         
 
         #endregion // Instance Variables
@@ -103,12 +106,24 @@ namespace FilterWheelControl
             // Set the initial state of the instrument panel
             this._fw_inst_labels = new List<TextBlock> { F0, F1, F2, F3, F4, F5, F6, F7 };
             List<string> set = _wi.GetOrderedSet();
-            while (set == null)
+            
+            // If we were unable to contact the filter wheel, try for five seconds, then give up.
+            int wait_iteration = 0;
+            while (set == null && wait_iteration < 50)
             {
                 Thread.Sleep(100);
                 set = _wi.GetOrderedSet();
+                wait_iteration++;
+            }
+            
+            // If we have given up, abort add-in load.
+            if (wait_iteration == 50)
+            {
+                _did_load = false;
+                return;
             }
 
+            // If we made it, start populating interface items.
             for (int i = 0; i < set.Count; i++)
             {
                 FilterSelectionBox.Items.Add(set[i]);
@@ -122,6 +137,9 @@ namespace FilterWheelControl
             // Set up other interface properties
             SetUpEventHandlers();
             SetUpTimer();
+
+            // Let the caller know we loaded
+            _did_load = true;
         }
 
         /// <summary>
@@ -836,12 +854,11 @@ namespace FilterWheelControl
             if (this.ManualControl.IsChecked == true)
             {
                 if (_exp.IsRunning)
-                    PleaseHaltCapturingMessage();
-                else
-                {
-                    Thread ccw_rotate = new Thread(RotateCounterClockwise);
-                    ccw_rotate.Start();
-                }
+                    if (!PleaseHaltCapturingMessage())
+                        return;
+
+                Thread ccw_rotate = new Thread(RotateCounterClockwise);
+                ccw_rotate.Start();
             }
         }
 
@@ -853,12 +870,11 @@ namespace FilterWheelControl
             if (this.ManualControl.IsChecked == true)
             {
                 if (_exp.IsRunning)
-                    PleaseHaltCapturingMessage();
-                else
-                {
-                    Thread cw_rotate = new Thread(RotateClockwise);
-                    cw_rotate.Start();
-                }
+                    if (!PleaseHaltCapturingMessage())
+                        return;
+
+                Thread cw_rotate = new Thread(RotateClockwise);
+                cw_rotate.Start();
             }
         }
 
@@ -870,28 +886,29 @@ namespace FilterWheelControl
             if (ManualControl.IsChecked == true)
             {
                 if (_exp.IsRunning)
-                    PleaseHaltCapturingMessage();
-                else
-                {
-                    if (JumpSelectionBox.SelectedIndex != -1)
-                    {
-                        string selected = (string)JumpSelectionBox.SelectedValue;
-                        Thread jump = new Thread(RotateToSelectedFilter);
-                        jump.Start(selected);
-                    }
-                    else
-                        MessageBox.Show("Please select a filter to jump to.");
+                    if (!PleaseHaltCapturingMessage())
+                        return;
 
+                if (JumpSelectionBox.SelectedIndex != -1)
+                {
+                    string selected = (string)JumpSelectionBox.SelectedValue;
+                    Thread jump = new Thread(RotateToSelectedFilter);
+                    jump.Start(selected);
                 }
+                else
+                    MessageBox.Show("Please select a filter to jump to.");
             }
         }
 
         /// <summary>
         /// Displays an error message anytime LightField is capturing images and the user attempts to rotate the filter wheel.
+        /// Asks the observer if they would like to continue
         /// </summary>
-        private static void PleaseHaltCapturingMessage()
+        /// <returns>True if the observer would like to continue, false otherwise.</returns>
+        private static bool PleaseHaltCapturingMessage()
         {
-            MessageBox.Show("Please halt current frame capturing before attempting to rotate the filter wheel.");
+            MessageBoxResult rotate = MessageBox.Show("You are currently acquiring images.  If you rotate the filter wheel, you will have one (or more) bad frames while the wheel is rotating.  Are you sure you want to do this?", "Really?", MessageBoxButton.YesNo);
+            return rotate == MessageBoxResult.Yes;
         }
 
         #endregion // Manual Control Buttons
@@ -970,7 +987,7 @@ namespace FilterWheelControl
 
         #endregion Instrument Panel
 
-        #region ShutDown
+        #region ShutDown/DidLoad
 
         /// <summary>
         /// Closes the port to the filter wheel and sets all event handlers back to defaults.
@@ -985,7 +1002,12 @@ namespace FilterWheelControl
             _exp.ImageDataSetReceived -= _IDS_received_automated;
         }
 
-        #endregion // Shut Down
+        public bool DidLoad()
+        {
+            return _did_load;
+        }
+
+        #endregion // ShutDown/DidLoad
 
 
 

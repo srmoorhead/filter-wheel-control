@@ -70,7 +70,7 @@
         <Grid x:Name="ViewerPane" HorizontalAlignment="Left" Height="281" Margin="10,409,0,0" VerticalAlignment="Top" Width="250"/>
         <Grid Margin="285,409,334,0">
             <Grid Margin="0,50">
-                <Ellipse HorizontalAlignment="Left" Height="181" Stroke="Black" VerticalAlignment="Top" Width="181"/>
+                <Ellipse HorizontalAlignment="Left" Height="181" Stroke="Black" VerticalAlignment="Top" Width="181" Fill="#FF636262"/>
                 <Rectangle HorizontalAlignment="Left" Height="42" Margin="70,9,0,0" Stroke="Black" VerticalAlignment="Top" Width="42"/>
                 <TextBlock x:Name="F0" HorizontalAlignment="Left" Margin="70,20,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
                 <TextBlock x:Name="F1" HorizontalAlignment="Left" Margin="120,39,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>

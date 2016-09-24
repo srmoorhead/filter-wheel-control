@@ -11,7 +11,7 @@ using PrincetonInstruments.LightField.AddIns;
 namespace FilterWheelControl
 {
     [AddIn("Filter Wheel Control",
-            Version = "0.6.0",
+            Version = "0.6.2",
             Publisher = "U.T. Dept. of Astronomy - S. R. Moorhead",
             Description = "Allows the observer to manipulate parameters relating to the control of a filter wheel.")]
     
@@ -29,6 +29,12 @@ namespace FilterWheelControl
             ScrollViewer sv = new ScrollViewer();            
             // Build controls
             control_ = new ControlPanel(app.Experiment, app.DisplayManager);
+
+            if (!control_.DidLoad())
+            {
+                Deactivate();
+                return;
+            }
 
             sv.Content = control_;
             ExperimentViewElement = sv;//control_;

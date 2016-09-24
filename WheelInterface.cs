@@ -15,7 +15,7 @@ namespace FilterWheelControl
     {
         #region Static Variables
 
-        public static readonly List<string> _LOADED_FILTERS = new List<string> { "u'", "g'", "r'", "i'", "z'", "EMPTY", "BLOCK", "BG40" };
+        public static readonly List<string> _LOADED_FILTERS = new List<string> { "u '", "g '", "r '", "i '", "z '", "EMPTY", "BLOCK", "BG40" };
         public static readonly double _TIME_BETWEEN_ADJACENT_FILTERS = 1.5; // in seconds
 
         private static readonly string _PORT_NAME = "COM82"; // This must be set when the filter wheel is attached to the computer.
@@ -226,10 +226,13 @@ namespace FilterWheelControl
         /// <summary>
         /// Provides the filters currently in the wheel, ordered with the 0th element being the filter in the prime position, moving clockwise.
         /// </summary>
-        /// <returns>A list of strings holding the filter types.</returns>
+        /// <returns>A list of strings holding the filter types.  Null if the wheel position is unknown.</returns>
         public List<string> GetOrderedSet()
         {
             int cur = GetCurrentPosition();
+            if (cur == -1)
+                return null;
+
             List<string> ordered = new List<string>();
 
             int i = cur;
@@ -331,15 +334,15 @@ namespace FilterWheelControl
                 if (_fw.IsOpen)
                 {
                     ClosePort();
-                    return "A port was successfully opened.";
+                    return "The filter wheel seems to be connected.";
                 }
                 else
-                    return "A port failed to open.";
+                    return "The filter wheel is connected, but access was denied.  Please wait a few moments and try to Ping again.\n\nIf you have already done that, try disconnecting/reconnecting the filter wheel.";
             }
             catch (Exception e)
             {
                 ClosePort();
-                return "You have bigger problems that I expected...\nTry disconnection/reconnecting the filter wheel and restarting the add-in.\nHere's a little more information:\n\n" + e.Message;
+                return "You have bigger problems than I expected...\nTry disconnecting/reconnecting the filter wheel and restarting the add-in.\nHere's a little more information:\n\n" + e.Message;
             }
         }
 
