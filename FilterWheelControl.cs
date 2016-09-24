@@ -28,7 +28,7 @@ namespace FilterWheelControl
 
             ScrollViewer sv = new ScrollViewer();            
             // Build controls
-            control_ = new ControlPanel(app.Experiment, app.DisplayManager, app.FileManager);
+            control_ = new ControlPanel(app.Experiment, app.DisplayManager);
 
             sv.Content = control_;
             ExperimentViewElement = sv;//control_;
@@ -36,8 +36,8 @@ namespace FilterWheelControl
             // Initialize The Base with the controls dispatcher            
             Initialize(control_.Dispatcher, "Filter Wheel Control");
         }
-        
-        public void Deactivate() { }        
+
+        public void Deactivate() { control_.ShutDown(); }        
         
         public override string UIExperimentViewTitle { get { return "Filter Wheel Control"; } }
         

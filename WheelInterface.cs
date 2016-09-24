@@ -18,8 +18,10 @@ namespace FilterWheelControl
         public static readonly List<string> _LOADED_FILTERS = new List<string> { "u'", "g'", "r'", "i'", "z'", "EMPTY", "BLOCK", "BG40" };
         public static readonly double _TIME_BETWEEN_ADJACENT_FILTERS = 1.5; // in seconds
 
-        private static readonly string _PORT_NAME = "COM4";
+        private static readonly string _PORT_NAME = "COM82"; // This must be set when the filter wheel is attached to the computer.
         private static readonly int _BAUD_RATE = 9600;
+        private static readonly int _TIMEOUT = 1000;
+        private static readonly string _NEWLINE = "\r\n";
 
         private static readonly string _MOVE = "mv";
         private static readonly string _HOME = "hm";
@@ -32,6 +34,10 @@ namespace FilterWheelControl
         #region Instance Variables
 
         private SerialPort _fw;
+        private SerialDataReceivedEventHandler _data_received_rotate;
+        private SerialDataReceivedEventHandler _data_received_inquire;
+        private SerialDataReceivedEventHandler _data_received_home;
+        private ControlPanel _panel;
 
         #endregion // Instance Variables 
 
@@ -40,13 +46,20 @@ namespace FilterWheelControl
         /// <summary>
         /// Opens a connection to the filter wheel via a serial port.
         /// </summary>
-        public WheelInterface()
+        public WheelInterface(ControlPanel p)
         {
             try
             {
                 _fw = new SerialPort(_PORT_NAME, _BAUD_RATE);
-                _fw.NewLine = "\r\n"; // newline character
-                _fw.ReadTimeout = 1000; // ms until we give up reading
+                _fw.NewLine = _NEWLINE; // newline character
+                _fw.ReadTimeout = _TIMEOUT; // 1s to read, then give up
+                _panel = p;
+
+                // Create event handlers for DataRecieved event
+                _data_received_rotate = new SerialDataReceivedEventHandler(_fw_DataReceived_Rotate);
+                _data_received_inquire = new SerialDataReceivedEventHandler(_fw_DataReceived_Inquire);
+                _data_received_home = new SerialDataReceivedEventHandler(_fw_DataReceived_Home);
+
                 try
                 {
                     _fw.Open();
@@ -59,7 +72,7 @@ namespace FilterWheelControl
             }
             catch (Exception e)
             {
-                MessageBox.Show(e.Message);
+                ProvideErrorInformation(e.Message);
             }
         }
 
@@ -80,14 +93,14 @@ namespace FilterWheelControl
 
                 int move_to;
 
-                if (cur == 0)
-                    move_to = _LOADED_FILTERS.Count - 1;
+                if (cur == _LOADED_FILTERS.Count - 1)
+                    move_to = 0;
                 else
-                    move_to = GetCurrentPosition() - 1;
+                    move_to = GetCurrentPosition() + 1;
 
                 OpenPort();
                 _fw.WriteLine(move_to + _MOVE + "\r");
-                ClosePort();
+                _fw.DataReceived += _data_received_rotate;
             }
             catch (Exception e)
             {
@@ -108,14 +121,14 @@ namespace FilterWheelControl
 
                 int move_to;
 
-                if (cur == _LOADED_FILTERS.Count - 1)
-                    move_to = 0;
+                if (cur == 0)
+                    move_to = _LOADED_FILTERS.Count - 1;
                 else
-                    move_to = GetCurrentPosition() + 1;
+                    move_to = GetCurrentPosition() - 1;
 
                 OpenPort();
                 _fw.WriteLine(move_to + _MOVE + "\r");
-                ClosePort();
+                _fw.DataReceived += _data_received_rotate;
             }
             catch (Exception e)
             {
@@ -133,7 +146,7 @@ namespace FilterWheelControl
             {
                 OpenPort();
                 _fw.WriteLine(_LOADED_FILTERS.IndexOf((string)type) + _MOVE + "\r");
-                ClosePort();
+                _fw.DataReceived += _data_received_rotate;
             }
             catch (Exception e)
             {
@@ -141,13 +154,16 @@ namespace FilterWheelControl
             }
         }
 
+        /// <summary>
+        /// Sends the home command to the filter wheel so it can find a known position.
+        /// </summary>
         public void Home()
         {
             try
             {
                 OpenPort();
                 _fw.WriteLine(_HOME + "\r");
-                ClosePort();
+                _fw.DataReceived += _data_received_home;
             }
             catch (Exception e)
             {
@@ -155,13 +171,19 @@ namespace FilterWheelControl
             }
         }
 
+        /// <summary>
+        /// Opens a port if it is not already open.
+        /// </summary>
         private void OpenPort()
         {
             if (!_fw.IsOpen)
                 _fw.Open();
         }
 
-        private void ClosePort()
+        /// <summary>
+        /// Closes the port if it is open.
+        /// </summary>
+        public void ClosePort()
         {
             if (_fw.IsOpen)
                 _fw.Close();
@@ -177,6 +199,28 @@ namespace FilterWheelControl
 
         #endregion // Modifiers
 
+        #region Event Handlers
+
+        public void _fw_DataReceived_Rotate(object sender, SerialDataReceivedEventArgs e)
+        {
+            _fw.DataReceived -= _data_received_rotate;
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.UpdateFWInstrumentOrder()));
+        }
+
+        public void _fw_DataReceived_Inquire(object sender, SerialDataReceivedEventArgs e)
+        {
+            _fw.DataReceived -= _data_received_inquire;
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.UpdateFWInstrumentOrder()));
+        }
+
+        public void _fw_DataReceived_Home(object sender, SerialDataReceivedEventArgs e)
+        {
+            _fw.DataReceived -= _data_received_home;
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.UpdateFWInstrumentOrder()));
+        }
+
+        #endregion // Event Handlers
+
         #region Accessors
 
         /// <summary>
@@ -186,8 +230,6 @@ namespace FilterWheelControl
         public List<string> GetOrderedSet()
         {
             int cur = GetCurrentPosition();
-            if (cur == -1)
-                return null;
             List<string> ordered = new List<string>();
 
             int i = cur;
@@ -210,9 +252,14 @@ namespace FilterWheelControl
         /// <summary>
         /// Retrieves the current position of the filter and associates that back to the type of filter in that position.
         /// </summary>
-        /// <returns>A string holding the type of the filter in the prime position (in front of the camera).</returns>
+        /// <returns>A string holding the type of the filter in the prime position (in front of the camera).  If the current position is not known, returns null.</returns>
         public string GetCurrentFilter()
         {
+            int cur = GetCurrentPosition();
+            if (cur == -1)
+            {
+                return null;
+            }
             return _LOADED_FILTERS[Convert.ToInt16(GetCurrentPosition())];
         }
 
@@ -223,7 +270,6 @@ namespace FilterWheelControl
         public int GetCurrentPosition()
         {
             OpenPort();
-
             _fw.WriteLine(_INQUIRE + "\r");
             Thread.Sleep(100);
             string report = _fw.ReadExisting();
@@ -271,6 +317,30 @@ namespace FilterWheelControl
         public double TimeToFilter(string f)
         {
             return TimeBetweenFilters(this.GetCurrentFilter(), f);
+        }
+
+        /// <summary>
+        /// Attempts to open a port to the filter wheel.
+        /// </summary>
+        /// <returns></returns>
+        public string PingConnection()
+        {
+            try
+            {
+                _fw.Open();
+                if (_fw.IsOpen)
+                {
+                    ClosePort();
+                    return "A port was successfully opened.";
+                }
+                else
+                    return "A port failed to open.";
+            }
+            catch (Exception e)
+            {
+                ClosePort();
+                return "You have bigger problems that I expected...\nTry disconnection/reconnecting the filter wheel and restarting the add-in.\nHere's a little more information:\n\n" + e.Message;
+            }
         }
 
         #endregion // Accessors

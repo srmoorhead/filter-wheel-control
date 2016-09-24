@@ -68,7 +68,7 @@
         </Grid>
         <Separator HorizontalAlignment="Left" Height="10" Margin="10,394,0,0" VerticalAlignment="Top" Width="745"/>
         <Grid x:Name="ViewerPane" HorizontalAlignment="Left" Height="281" Margin="10,409,0,0" VerticalAlignment="Top" Width="250"/>
-        <Grid Margin="285,409,334,10">
+        <Grid Margin="285,409,334,0">
             <Grid Margin="0,50">
                 <Ellipse HorizontalAlignment="Left" Height="181" Stroke="Black" VerticalAlignment="Top" Width="181"/>
                 <Rectangle HorizontalAlignment="Left" Height="42" Margin="70,9,0,0" Stroke="Black" VerticalAlignment="Top" Width="42"/>
@@ -101,6 +101,7 @@
                     </Separator.RenderTransform>
                 </Separator>
             </Grid>
+            <Button x:Name="PingButton" Content="Ping" HorizontalAlignment="Left" Margin="55,246,0,0" VerticalAlignment="Top" Width="75" Click="PingButton_Click"/>
         </Grid>
         <Grid Margin="486,409,45,10">
             <Rectangle HorizontalAlignment="Left" Height="281" Stroke="Black" VerticalAlignment="Top" Width="269"/>

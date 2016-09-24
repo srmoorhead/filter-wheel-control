@@ -32,7 +32,6 @@ namespace FilterWheelControl
 
         private static readonly string InputTimeTextbox_DEFAULT_TEXT = "Exposure Time (s)"; // Change this string if you wish to change the text in the InputTime textbox
         private static readonly string NumFramesTextbox_DEFAULT_TEXT = "Num"; // Change this string if you wish to change the text in the NumFrames textbox
-        public static readonly int FLASH_INTERVAL = 500; // Half the period of Stop button flashing
         private static string INSTRUMENT_PANEL_DISPLAY_FORMAT = "{0}\t|  {1}\t|  {2} of {3}";  // {0} = filter type, {1} = exposure time, {2} = this iteration, {3} = total iterations
 
         #endregion // Static Variables
@@ -41,12 +40,10 @@ namespace FilterWheelControl
 
         // Experiment instance variables
         private IExperiment _exp;
-        private IFileManager _file_mgr;
 
         // Instance variables for the instrument panel display items
         private List<TextBlock> _fw_inst_labels; // holds the labels that make up the filter wheel instrument on the instrument panel, 0 is the current filter, moving clockwise
         private readonly object _fw_inst_lock;
-        private readonly object _fw_rotation_lock;
         private System.Windows.Threading.DispatcherTimer _elapsedTimeClock;
         private DateTime _runStart;
         
@@ -59,8 +56,7 @@ namespace FilterWheelControl
         private bool _transitioning;
         private int _iteration;
         private WheelInterface _wi;
-        private readonly object _event_handler_lock;
-        private int _start_count;
+        private readonly object _fw_rotation_lock;
 
         // Custom event handlers
         EventHandler<ImageDataSetReceivedEventArgs> _IDS_received_automated;
@@ -80,7 +76,7 @@ namespace FilterWheelControl
         ///
         /////////////////////////////////////////////////////////////////
         
-        public ControlPanel(IExperiment e, IDisplay dispMgr, IFileManager fileMgr)
+        public ControlPanel(IExperiment e, IDisplay dispMgr)
         {      
             InitializeComponent();
 
@@ -89,17 +85,15 @@ namespace FilterWheelControl
             this._delete_allowed = true;
             this._fw_inst_lock = new object();
             this._fw_rotation_lock = new object();
-            this._wi = new WheelInterface();
+            this._wi = new WheelInterface(this);
             this._settings_list = new CurrentSettingsList(_wi);
-            this._file_mgr = fileMgr;
-            this._event_handler_lock = new object();
-            this._start_count = 0;
+            
+            // Home the filter wheel
+            _wi.Home();
             
             // Set up the small viewer and capture view functionality in Main View
             IDisplayViewerControl vc = dispMgr.CreateDisplayViewerControl();
             ViewerPane.Children.Add(vc.Control);
-            vc.DisplayViewer.Clear();
-            vc.DisplayViewer.Add(vc.DisplayViewer.LiveDisplaySource);
             SetUpDisplayParams(vc);
 
             // Assign the Drag/Drop Manager to the CurrentSettings window
@@ -109,36 +103,50 @@ namespace FilterWheelControl
             // Set the initial state of the instrument panel
             this._fw_inst_labels = new List<TextBlock> { F0, F1, F2, F3, F4, F5, F6, F7 };
             List<string> set = _wi.GetOrderedSet();
-            if (set == null)
-                _wi.Home();
             while (set == null)
             {
-                Thread.Sleep(1000);
+                Thread.Sleep(100);
                 set = _wi.GetOrderedSet();
             }
-            
-            for(int i = 0; i < set.Count; i++)
+
+            for (int i = 0; i < set.Count; i++)
             {
                 FilterSelectionBox.Items.Add(set[i]);
                 JumpSelectionBox.Items.Add(set[i]);
                 _fw_inst_labels[i].Text = set[i];
             }
             
-            // Set the initial Manual Control setting indicator
-            AutomatedControlDescription.BorderBrush = Brushes.Transparent;
-            ManualControlDescription.BorderBrush = Brushes.Gray;
+            // Set the initial Manual Control setting
+            EnterManualControl();
 
-            // Hook up run and acquire to Manual Control event handlers.
-            // Create new custom event handlers
+            // Set up other interface properties
+            SetUpEventHandlers();
+            SetUpTimer();
+        }
+
+        /// <summary>
+        /// Sets up the initial event handlers for Run and Acquire and hooks them up to the events.
+        /// The initial state is in Manual Control.
+        /// </summary>
+        private void SetUpEventHandlers()
+        {
+            // Create event handlers
             _experiment_complete_manual = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_ManualControl);
             _experiment_start_manual = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_ManualControl);
+
+            // Hook up to manual control handlers
             _exp.ExperimentStarted += _experiment_start_manual;
             _exp.ExperimentCompleted += _experiment_complete_manual;
+        }
 
-            // Set up the elapsed time timer
+        /// <summary>
+        /// Sets up the ElapsedTime timer for the instrument panel.
+        /// </summary>
+        private void SetUpTimer()
+        {
             _elapsedTimeClock = new System.Windows.Threading.DispatcherTimer();
             _elapsedTimeClock.Tick += new EventHandler(elapsedTimeClock_Tick);
-            _elapsedTimeClock.Interval = new TimeSpan(0,0,1); // updates every 1 second
+            _elapsedTimeClock.Interval = new TimeSpan(0, 0, 1); // updates every 1 second
         }
 
         /// <summary>
@@ -147,6 +155,8 @@ namespace FilterWheelControl
         /// <param name="vc">The IDisplayViewerControl associated with the IDisplayViewer on the FilterWheelControl panel.</param>
         private void SetUpDisplayParams(IDisplayViewerControl vc)
         {
+            vc.DisplayViewer.Clear();
+            vc.DisplayViewer.Add(vc.DisplayViewer.LiveDisplaySource);
             vc.DisplayViewer.AlwaysAutoScaleIntensity = true;
             vc.DisplayViewer.ShowExposureEndedTimeStamp = false;
             vc.DisplayViewer.ShowExposureStartedTimeStamp = false;
@@ -162,12 +172,20 @@ namespace FilterWheelControl
         #region Manual/Automated Control
 
         /// <summary>
-        /// Updates the border indicator on the AutomatedControlDescription and ManualControlDescription labels to reflect that the system is in ManualControl mode.
-        /// Attaches the appropriate custom event handlers to the ExperimentCompleted, ExperimentStarted, and ImageDataSetReceived events.
+        /// Calls EnterManualControl
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
         private void ManualControl_Click(object sender, RoutedEventArgs e)
+        {
+            EnterManualControl();
+        }
+
+        /// <summary>
+        /// Updates the border indicator on the AutomatedControlDescription and ManualControlDescription labels to reflect that the system is in ManualControl mode.
+        /// Attaches the appropriate custom event handlers to the ExperimentCompleted, ExperimentStarted, and ImageDataSetReceived events.
+        /// </summary>
+        private void EnterManualControl()
         {
             // Update UI to reflect option change
             AutomatedControlDescription.BorderBrush = Brushes.Transparent;
@@ -176,15 +194,19 @@ namespace FilterWheelControl
             CCW.IsHitTestVisible = true;
             CW.IsHitTestVisible = true;
             JumpSelectionBox.IsHitTestVisible = true;
-
-            // Create new custom event handlers
-            _experiment_complete_manual = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_ManualControl);
-            _experiment_start_manual = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_ManualControl);
+            TriggerSlewAdjust.IsHitTestVisible = false;
+            EfficientOrder.IsHitTestVisible = false;
 
             // Disconnect preview and acquire from custom event handlers
             _exp.ImageDataSetReceived -= _IDS_received_automated;
             _exp.ExperimentCompleted -= _experiment_complete_automated;
-            _exp.ExperimentStarted -= _experiment_start_automated;
+            _exp.ExperimentStarted -= _experiment_start_automated; _exp.ExperimentStarted += _experiment_start_manual;
+            _exp.ExperimentCompleted -= _experiment_complete_manual;
+            _exp.ExperimentStarted -= _experiment_start_manual;
+
+            // Create new event handlers for preview and acquire
+            _experiment_complete_manual = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_ManualControl);
+            _experiment_start_manual = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_ManualControl);
 
             // Connect preview and acquire to manual event handlers
             _exp.ExperimentStarted += _experiment_start_manual;
@@ -208,15 +230,20 @@ namespace FilterWheelControl
                 CCW.IsHitTestVisible = false;
                 CW.IsHitTestVisible = false;
                 JumpSelectionBox.IsHitTestVisible = false;
+                TriggerSlewAdjust.IsHitTestVisible = true;
+                EfficientOrder.IsHitTestVisible = true;
+                
+                // Disconnect preview and acquire from all handlers
+                _exp.ExperimentCompleted -= _experiment_complete_manual;
+                _exp.ExperimentStarted -= _experiment_start_manual;
+                _exp.ImageDataSetReceived -= _IDS_received_automated;
+                _exp.ExperimentCompleted -= _experiment_complete_automated;
+                _exp.ExperimentStarted -= _experiment_start_automated;
 
-                // Create new custom event handlers
+                // Create new event handlers for preview and acquire
                 _IDS_received_automated = new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived_Automated);
                 _experiment_complete_automated = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_Automated);
                 _experiment_start_automated = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_Automated);
-
-                // Disconnect preview and acquire from manual event handlers
-                _exp.ExperimentCompleted -= _exp_ExperimentCompleted_ManualControl;
-                _exp.ExperimentStarted -= _exp_ExperimentStarted_ManualControl;
 
                 // Hook up preview and acquire to new event handlers
                 _exp.ImageDataSetReceived += _IDS_received_automated;
@@ -522,7 +549,10 @@ namespace FilterWheelControl
                         MessageBox.Show("This list contains filters that are no longer in the wheel.  Please rebuild your filter settings using the current filter set.");
                         return;
                     }
-                    _settings_list.Add((object)vals[0], vals[1], vals[2], (bool)TriggerSlewAdjust.IsChecked);
+                    else
+                    {
+                        _settings_list.Add((object)vals[0], vals[1], vals[2], (bool)TriggerSlewAdjust.IsChecked);
+                    }
                 }
                 catch (IndexOutOfRangeException)
                 {
@@ -601,8 +631,7 @@ namespace FilterWheelControl
                 _iteration++;
 
             // Update the instrument panel
-            UpdateInstrumentPanel(); 
-            
+            UpdateInstrumentPanel();
         }
 
         /// <summary>
@@ -613,33 +642,28 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void _exp_ExperimentStarted_Automated(object sender, ExperimentStartedEventArgs e)
         {
-            if (_start_count == 0)
+            // Don't start acquiring if there are no settings in the list.
+            if (_settings_list.GetSettingsCollection().Count() == 0)
             {
-                // Update the _start_count variable to account for the double-call on experiment start :(
-                _start_count = 1;
-
-                // Don't start acquiring if there are no settings in the list.
-                if (_settings_list.GetSettingsCollection().Count() == 0)
-                {
-                    MessageBox.Show("Please provide some filter setting to iterate through, or switch to Manual Control.");
-                    _exp.Stop();
-                }
-                else
-                {
-                    // Disable changes to the settings list and control system and retrieve the first setting
-                    Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
-                    _current_setting = _settings_list.GetCaptureSettings();
-                    ManualControl.IsHitTestVisible = false;
-
-                    // Set up the first exposure time, wheel position, and update the instrument panel to reflect this
-                    _transitioning = false;
-                    SetNextExposureTime();
-                    UpdateInstrumentPanel();
-
-                    // Initialize other environment variables
-                    StartElapsedTimeClock();
-                }  
+                MessageBox.Show("Please provide some filter setting to iterate through, or switch to Manual Control.");
+                _exp.Stop();
             }
+            else
+            {
+                // Disable changes to the settings list and control system and retrieve the first setting
+                Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
+                _current_setting = _settings_list.GetCaptureSettings();
+                ManualControl.IsHitTestVisible = false;
+
+                // Set up the first exposure time, wheel position, and update the instrument panel to reflect this
+                _transitioning = false;
+                SetNextExposureTime();
+                UpdateInstrumentPanel();
+
+                // Initialize other environment variables
+                StartElapsedTimeClock();
+            }  
+            
             
         }
 
@@ -648,8 +672,13 @@ namespace FilterWheelControl
         /// </summary>
         private void SetNextExposureTime()
         {
+            // Double check that we know where we are.
+            string cur = _wi.GetCurrentFilter();
+            if (cur.Equals(null) || cur != _current_setting.FilterType)
+                StopAll();
+            
             // If we need to rotate, set up to do so
-            if (_wi.GetCurrentFilter() != _current_setting.FilterType)
+            if (cur != _current_setting.FilterType)
             {
                 _iteration = 0;
                 _transitioning = true;
@@ -681,8 +710,9 @@ namespace FilterWheelControl
             _elapsedTimeClock.Stop();
             Application.Current.Dispatcher.BeginInvoke(new Action(EnableFilterSettingsChanges));
             Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("")));
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdateFWInstrumentOrder()));
             ManualControl.IsHitTestVisible = true;
-            _start_count = 0;
+            _wi.ClosePort();
         }
 
         /// <summary>
@@ -699,7 +729,7 @@ namespace FilterWheelControl
             else
             {
                 String currStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration, _current_setting.NumExposures);
-                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus(currStat)));
+                Application.Current.Dispatcher.Invoke(new Action(() => UpdatePanelCurrentStatus(currStat)));
             }
         }
 
@@ -714,6 +744,16 @@ namespace FilterWheelControl
             _elapsedTimeClock.Start();
         }
 
+        /// <summary>
+        /// Stops acquisition, attempts to home the filter wheel, and displays a small message to the user.
+        /// </summary>
+        private void StopAll()
+        {
+            _exp.Stop();
+            _wi.Home();
+            MessageBox.Show("Acquisition has been halted.  There has been an error communicating with the filter wheel.\n\nCommon causes include:\n\nBad usb/ethernet connection.\nLoss of power to filter wheel motor.\nActs of God.\n\n");
+        }
+
         #endregion // Automated Event Handlers
 
         #region Manual Event Handlers
@@ -725,10 +765,7 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void _exp_ExperimentStarted_ManualControl(object sender, ExperimentStartedEventArgs e)
         {
-            lock (_event_handler_lock)
-            {
-                AutomatedControl.IsHitTestVisible = false; 
-            }
+            AutomatedControl.IsHitTestVisible = false;
         }
 
         /// <summary>
@@ -738,10 +775,7 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void _exp_ExperimentCompleted_ManualControl(object sender, ExperimentCompletedEventArgs e)
         {
-            lock (_event_handler_lock)
-            {
-                AutomatedControl.IsHitTestVisible = true; 
-            }
+            AutomatedControl.IsHitTestVisible = true;
         }
 
         #endregion // Manual Event Handlers
@@ -755,11 +789,8 @@ namespace FilterWheelControl
         {
             lock (_fw_rotation_lock)
             {
-                int down_time = Convert.ToInt16(_wi.TimeToFilter((string)f)) * 1000;
                 Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateToFilter((string)f)));
                 Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
-                Thread.Sleep(down_time);
-                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
             }
         }
 
@@ -772,9 +803,6 @@ namespace FilterWheelControl
             {
                 Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateCounterClockwise()));
                 Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
-                int down_time = Convert.ToInt16(WheelInterface._TIME_BETWEEN_ADJACENT_FILTERS * 1000);
-                Thread.Sleep(down_time);
-                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
             }
         }
 
@@ -787,9 +815,6 @@ namespace FilterWheelControl
             {
                 Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateClockwise()));
                 Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
-                int down_time = Convert.ToInt16(WheelInterface._TIME_BETWEEN_ADJACENT_FILTERS * 1000);
-                Thread.Sleep(down_time);
-                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentOrder));
             }
         }
 
@@ -932,9 +957,37 @@ namespace FilterWheelControl
             this.ElapsedRunTime.Text = (DateTime.Now - _runStart).ToString(@"hh\:mm\:ss");
         }
 
+        /// <summary>
+        /// Runs when the ping button on the instrument panel is clicked.
+        /// Calls _wi.PingConnection and displays the result in a MessageBox
+        /// </summary>
+        /// <param name="senter"></param>
+        /// <param name="e"></param>
+        public void PingButton_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show(_wi.PingConnection());
+        }
+
         #endregion Instrument Panel
 
-        
+        #region ShutDown
+
+        /// <summary>
+        /// Closes the port to the filter wheel and sets all event handlers back to defaults.
+        /// </summary>
+        public void ShutDown()
+        {
+            _wi.ClosePort();
+            _exp.ExperimentCompleted -= _experiment_complete_manual;
+            _exp.ExperimentStarted -= _experiment_start_manual;
+            _exp.ExperimentStarted -= _experiment_start_automated;
+            _exp.ExperimentCompleted -= _experiment_complete_automated;
+            _exp.ImageDataSetReceived -= _IDS_received_automated;
+        }
+
+        #endregion // Shut Down
+
+
 
     }
 }
