@@ -30,7 +30,7 @@
                 <Button x:Name="LoadButton" Content="Load" HorizontalAlignment="Left" Margin="62,0,0,0" VerticalAlignment="Top" Width="63" Click="LoadButton_Click" ToolTip="Load a pre-existing filter sequence."/>
             </Grid>
         </StackPanel>
-        <Label Content="Edit Filter Settings" HorizontalAlignment="Left" Margin="485.5,10,0,0" VerticalAlignment="Top"/>
+        <Label Content="Edit Filter Settings for Automated Control" HorizontalAlignment="Left" Margin="438,10,0,0" VerticalAlignment="Top"/>
         <Grid Margin="330,57,45,617">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="194*"/>
@@ -73,14 +73,14 @@
             <Grid Margin="0,50">
                 <Ellipse HorizontalAlignment="Left" Height="181" Stroke="Black" VerticalAlignment="Top" Width="181" Fill="#FF636262"/>
                 <Rectangle HorizontalAlignment="Left" Height="42" Margin="70,9,0,0" Stroke="Black" VerticalAlignment="Top" Width="42"/>
-                <TextBlock x:Name="F0" HorizontalAlignment="Left" Margin="70,20,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
-                <TextBlock x:Name="F1" HorizontalAlignment="Left" Margin="120,39,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
-                <TextBlock x:Name="F2" HorizontalAlignment="Left" Margin="134,83,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
-                <TextBlock x:Name="F3" HorizontalAlignment="Left" Margin="120,130,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
-                <TextBlock x:Name="F4" HorizontalAlignment="Left" Margin="70,154,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
-                <TextBlock x:Name="F5" HorizontalAlignment="Left" Margin="19,130,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
-                <TextBlock x:Name="F6" HorizontalAlignment="Left" Margin="5,83,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
-                <TextBlock x:Name="F7" HorizontalAlignment="Left" Margin="19,39,0,0" TextWrapping="Wrap" Text="DARK" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F0" HorizontalAlignment="Left" Margin="70,20,0,0" TextWrapping="Wrap" Text="?" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F1" HorizontalAlignment="Left" Margin="120,39,0,0" TextWrapping="Wrap" Text="?" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F2" HorizontalAlignment="Left" Margin="134,83,0,0" TextWrapping="Wrap" Text="?" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F3" HorizontalAlignment="Left" Margin="120,130,0,0" TextWrapping="Wrap" Text="?" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F4" HorizontalAlignment="Left" Margin="70,154,0,0" TextWrapping="Wrap" Text="?" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F5" HorizontalAlignment="Left" Margin="19,130,0,0" TextWrapping="Wrap" Text="?" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F6" HorizontalAlignment="Left" Margin="5,83,0,0" TextWrapping="Wrap" Text="?" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
+                <TextBlock x:Name="F7" HorizontalAlignment="Left" Margin="19,39,0,0" TextWrapping="Wrap" Text="?" VerticalAlignment="Top" Height="17" Width="42" TextAlignment="Center"/>
                 <Separator HorizontalAlignment="Left" Height="12" Margin="59,88,0,0" VerticalAlignment="Top" Width="65" RenderTransformOrigin="0.5,0.5">
                     <Separator.RenderTransform>
                         <TransformGroup>
@@ -103,6 +103,7 @@
                 </Separator>
             </Grid>
             <Button x:Name="PingButton" Content="Ping" HorizontalAlignment="Left" Margin="55,246,0,0" VerticalAlignment="Top" Width="75" Click="PingButton_Click"/>
+            <TextBlock x:Name="PingStatusBox" HorizontalAlignment="Left" Margin="0,10,0,0" TextWrapping="Wrap" Text="" TextAlignment="Center" VerticalAlignment="Top" Height="35" Width="181" ToolTip="Please Ping to Update"/>
         </Grid>
         <Grid Margin="486,409,45,10">
             <Rectangle HorizontalAlignment="Left" Height="281" Stroke="Black" VerticalAlignment="Top" Width="269"/>
@@ -111,12 +112,12 @@
             <TextBlock x:Name="CurrentStatus" HorizontalAlignment="Left" Margin="72,15,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="187" ToolTip="The current filter position."/>
             <TextBlock x:Name="PreviousStatus" HorizontalAlignment="Left" Margin="72,46,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="187" ToolTip="The previous filter position."/>
             <Grid Margin="10,98,10,95">
-                <Label Content="Prev. Exp. Start:" HorizontalAlignment="Left" VerticalAlignment="Top"/>
-                <Label Content="Prev. Exp. End:" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top"/>
-                <Label Content="Prev. Exp. Duration:" HorizontalAlignment="Left" Margin="0,62,0,0" VerticalAlignment="Top"/>
-                <TextBlock x:Name="PrevExpSt" HorizontalAlignment="Left" Margin="96,5,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="153" ToolTip="The previous frame's exposure start time."/>
-                <TextBlock x:Name="PrevExpEnd" HorizontalAlignment="Left" Margin="96,36,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="153" ToolTip="The previous frame's exposure end time."/>
-                <TextBlock x:Name="PrevExpDur" HorizontalAlignment="Left" Margin="117,67,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="132" ToolTip="The previous frame's exposure duration."/>
+                <Label Content="Sequence Cycle Time:" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                <Label Content="Sequence Transition Time:" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top"/>
+                <Label Content="Num Cycles Completed:" HorizontalAlignment="Left" Margin="0,62,0,0" VerticalAlignment="Top"/>
+                <TextBlock x:Name="SeqCycleTime" HorizontalAlignment="Left" Margin="129,5,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120" ToolTip="The previous frame's exposure start time."/>
+                <TextBlock x:Name="SeqTransitTime" HorizontalAlignment="Left" Margin="154,36,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="95" ToolTip="The previous frame's exposure end time."/>
+                <TextBlock x:Name="NumCyclesCompleted" HorizontalAlignment="Left" Margin="142,67,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="107" ToolTip="The previous frame's exposure duration."/>
             </Grid>
             <Grid Margin="10,219,8,5">
                 <Label Content="Run Start Time:" HorizontalAlignment="Left" VerticalAlignment="Top"/>

@@ -37,6 +37,9 @@ namespace FilterWheelControl
         public static readonly string _TRIGGER_ADJUSTED_STRING = "Trigger Slew Adjusted";
         public static readonly string _TRIGGER_UNALTERED_STRING = "Exposure Times Unaltered";
 
+        private static readonly string _CONNECTED = "Last Ping Status:  Connected";
+        private static readonly string _DISCONNECTED = "Last Ping Status: Disconnected";
+
         #endregion // Static Variables
 
         #region Instance Variables
@@ -58,7 +61,7 @@ namespace FilterWheelControl
         private FilterSetting _current_setting;
         private bool _transitioning;
         private int _iteration;
-        private WheelInterface _wi;
+        WheelInterface _wi;
         private readonly object _fw_rotation_lock;
 
         // Custom event handlers
@@ -95,8 +98,11 @@ namespace FilterWheelControl
             this._settings_list = new CurrentSettingsList(_wi);
             
             // Home the filter wheel
-            _wi.Home();
-            
+            if (_wi.PingConnection() == 0)
+            {
+                _wi.Home();
+            }
+
             // Set up the small viewer and capture view functionality in Main View
             IDisplayViewerControl vc = dispMgr.CreateDisplayViewerControl();
             ViewerPane.Children.Add(vc.Control);
@@ -108,30 +114,10 @@ namespace FilterWheelControl
             // Populate the Filter Selection Box and Jump Selection Box with the available filters
             // Set the initial state of the instrument panel
             this._fw_inst_labels = new List<TextBlock> { F0, F1, F2, F3, F4, F5, F6, F7 };
-            List<string> set = _wi.GetOrderedSet();
-            
-            // If we were unable to contact the filter wheel, try for five seconds, then give up.
-            int wait_iteration = 0;
-            while (set == null && wait_iteration < 50)
+            for (int i = 0; i < WheelInterface._LOADED_FILTERS.Count; i++)
             {
-                Thread.Sleep(100);
-                set = _wi.GetOrderedSet();
-                wait_iteration++;
-            }
-            
-            // If we have given up, abort add-in load.
-            if (wait_iteration == 50)
-            {
-                _did_load = false;
-                return;
-            }
-
-            // If we made it, start populating interface items.
-            for (int i = 0; i < set.Count; i++)
-            {
-                FilterSelectionBox.Items.Add(set[i]);
-                JumpSelectionBox.Items.Add(set[i]);
-                _fw_inst_labels[i].Text = set[i];
+                FilterSelectionBox.Items.Add(WheelInterface._LOADED_FILTERS[i]);
+                JumpSelectionBox.Items.Add(WheelInterface._LOADED_FILTERS[i]);
             }
             
             // Set the initial Manual Control setting
@@ -212,8 +198,6 @@ namespace FilterWheelControl
             AutomatedControlDescription.BorderBrush = Brushes.Transparent;
             ManualControlDescription.BorderBrush = Brushes.Gray;
             JumpButton.IsHitTestVisible = true;
-            CCW.IsHitTestVisible = true;
-            CW.IsHitTestVisible = true;
             JumpSelectionBox.IsHitTestVisible = true;
             TriggerSlewAdjust.IsHitTestVisible = false;
             EfficientOrder.IsHitTestVisible = false;
@@ -250,8 +234,6 @@ namespace FilterWheelControl
                 ManualControlDescription.BorderBrush = Brushes.Transparent;
                 AutomatedControlDescription.BorderBrush = Brushes.Gray;
                 JumpButton.IsHitTestVisible = false;
-                CCW.IsHitTestVisible = false;
-                CW.IsHitTestVisible = false;
                 JumpSelectionBox.IsHitTestVisible = false;
                 TriggerSlewAdjust.IsHitTestVisible = true;
                 EfficientOrder.IsHitTestVisible = true;
@@ -687,7 +669,7 @@ namespace FilterWheelControl
             }
             else
                 _iteration++;
-            
+
             // Update the instrument panel
             UpdateInstrumentPanel();
         }
@@ -729,28 +711,25 @@ namespace FilterWheelControl
         /// </summary>
         private void SetNextExposureTime()
         {
-            // Double check that we know where we are.
-            string cur = _wi.GetCurrentFilter();
-            if (cur.Equals(null))
-                StopAll();
-            
             // If we need to rotate, set up to do so
+            string cur = F0.Text;
             if (cur != _current_setting.FilterType)
             {
                 _iteration = 0;
                 _transitioning = true;
 
-                double rotation_time = _wi.TimeToFilter(_current_setting.FilterType);
+                // Calculate the rotation time and set the exposure time equal to the rotation time
+                double rotation_time = WheelInterface.TimeBetweenFilters(cur, _current_setting.FilterType);
                 rotation_time = rotation_time % 1 == 0 ? rotation_time - _settings_list.GetTriggerSlewCorrection() : rotation_time;
                 _exp.SetValue(CameraSettings.ShutterTimingExposureTime, rotation_time * 1000);
 
                 // Rotate the filter wheel
-                Thread rotate = new Thread(RotateToSelectedFilter);
-                rotate.Start(_current_setting.FilterType);
+                _wi.RotateToFilter(_current_setting.FilterType);
             }
             // Otherwise, set the iteration counter to zero and update the exposure time
             else
             {
+                _wi.Inquire();
                 _iteration = 1;
                 _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000);
             }
@@ -921,86 +900,14 @@ namespace FilterWheelControl
 
         #endregion // Manual Event Handlers
 
-        #region Rotation Threads
-
-        /// <summary>
-        /// A separate thread that controls clockwise filter wheel rotation.  
-        /// </summary>
-        private void RotateToSelectedFilter(object f)
-        {
-            lock (_fw_rotation_lock)
-            {
-                Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateToFilter((string)f)));
-                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
-            }
-        }
-
-        /// <summary>
-        /// A separate thread that controls counter clockwise filter wheel rotation.  
-        /// </summary>
-        private void RotateCounterClockwise()
-        {
-            lock (_fw_rotation_lock)
-            {
-                Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateCounterClockwise()));
-                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
-            }
-        }
-
-        /// <summary>
-        /// A separate thread that controls clockwise filter wheel rotation.  
-        /// </summary>
-        private void RotateClockwise()
-        {
-            lock (_fw_rotation_lock)
-            {
-                Application.Current.Dispatcher.Invoke(new Action(() => _wi.RotateClockwise()));
-                Application.Current.Dispatcher.BeginInvoke(new Action(UpdateFWInstrumentRotate));
-            }
-        }
-
-        #endregion // Rotation Threads
-
         #region Manual Control Buttons
 
         /////////////////////////////////////////////////////////////////
         ///
-        /// Methods for Manual Control Buttons (Rotate CW, Rotate CCW, Jump)
+        /// Methods for Manual Control Buttons
         ///
         /////////////////////////////////////////////////////////////////
-
-        /// <summary>
-        /// Sends a signal to the filter wheel to rotate the wheel counterclockwise (w.r.t. the camera)
-        /// </summary>
-        private void CCW_Click(object sender, RoutedEventArgs e)
-        {
-            if (this.ManualControl.IsChecked == true)
-            {
-                if (_exp.IsRunning)
-                    if (!PleaseHaltCapturingMessage())
-                        return;
-
-                Thread ccw_rotate = new Thread(RotateCounterClockwise);
-                ccw_rotate.Start();
-            }
-        }
-
-        /// <summary>
-        /// Sends a signal to the filter wheel to rotate the wheel clockwise (w.r.t. the camera)
-        /// </summary>
-        private void CW_Click(object sender, RoutedEventArgs e)
-        {
-            if (this.ManualControl.IsChecked == true)
-            {
-                if (_exp.IsRunning)
-                    if (!PleaseHaltCapturingMessage())
-                        return;
-
-                Thread cw_rotate = new Thread(RotateClockwise);
-                cw_rotate.Start();
-            }
-        }
-
+        
         /// <summary>
         /// Sends a signal to the filter wheel to rotate the wheel to the filter selected in the JumpSelectionBox drop down menu
         /// </summary>
@@ -1015,12 +922,22 @@ namespace FilterWheelControl
                 if (JumpSelectionBox.SelectedIndex != -1)
                 {
                     string selected = (string)JumpSelectionBox.SelectedValue;
-                    Thread jump = new Thread(RotateToSelectedFilter);
-                    jump.Start(selected);
+                    _wi.RotateToFilter(selected);
+                    JumpSelectionBox.SelectedIndex = -1; // reset box to empty
                 }
                 else
                     MessageBox.Show("Please select a filter to jump to.");
             }
+        }
+
+        private void CW_Click(object sender, RoutedEventArgs e)
+        {
+            _wi.Clockwise();
+        }
+
+        private void CCW_Click(object sender, RoutedEventArgs e)
+        {
+            _wi.CounterClockwise();
         }
 
         /// <summary>
@@ -1041,10 +958,8 @@ namespace FilterWheelControl
         /// <summary>
         /// Updates the filter wheel instrument on the instrument panel to reflect the current order
         /// </summary>
-        public void UpdateFWInstrumentOrder()
+        public void UpdateFWInstrumentOrder(List<string> newOrder)
         {
-            List<string> newOrder = _wi.GetOrderedSet();
-
             lock (_fw_inst_lock)
             {
                 for (int i = 0; i < _fw_inst_labels.Count(); i++)
@@ -1065,16 +980,21 @@ namespace FilterWheelControl
         }
 
         /// <summary>
-        /// Updates the Instrument Panel to show the latest frame metadata information
+        /// Updates the PingStatusBox Text to show that the wheel is disconnected.
         /// </summary>
-        /// <param name="m">The metadata object holding the new information</param>
-        public void UpdatePanelMetaData(Metadata m, DateTime captureCalled)
+        public void PingStatusDisconnected()
         {
-            this.PrevExpSt.Text = ((DateTime)(captureCalled + (TimeSpan)m.ExposureStarted)).ToString("HH:mm:ss.ffff"); // absolute time w.r.t. the computer clock
-            this.PrevExpEnd.Text = ((DateTime)(captureCalled + (TimeSpan)m.ExposureEnded)).ToString("HH:mm:ss.ffff"); // absolute time w.r.t. the computer clock
-            //this.PrevExpSt.Text = ((TimeSpan)m.ExposureStarted).ToString("c"); // relative time from the start of the Capture method
-            //this.PrevExpEnd.Text = ((TimeSpan)m.ExposureEnded).ToString("c"); // relative time from the start of the Capture method
-            this.PrevExpDur.Text = ((TimeSpan)m.ExposureEnded - (TimeSpan)m.ExposureStarted).ToString("c");
+            PingStatusBox.Foreground = Brushes.Red;
+            PingStatusBox.Text = _DISCONNECTED;
+        }
+
+        /// <summary>
+        /// Updates the PingStatusBox Text to show that the wheel is connected.
+        /// </summary>
+        public void PingStatusConnected()
+        {
+            PingStatusBox.ClearValue(TextBlock.ForegroundProperty);
+            PingStatusBox.Text = _CONNECTED;
         }
 
         /// <summary>
@@ -1105,7 +1025,8 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void PingButton_Click(object sender, RoutedEventArgs e)
         {
-            MessageBox.Show(_wi.PingConnection());
+            string message = _wi.PingConnection() == 0 ? "The connection seems good." : "A connection was not made.  Please check the connection.";
+            MessageBox.Show(message, "Ping Status");
         }
 
         #endregion Instrument Panel
@@ -1117,7 +1038,7 @@ namespace FilterWheelControl
         /// </summary>
         public void ShutDown()
         {
-            _wi.ClosePort();
+            _wi.ShutDown();
             _exp.ExperimentCompleted -= _experiment_complete_manual;
             _exp.ExperimentStarted -= _experiment_start_manual;
             _exp.ExperimentStarted -= _experiment_start_automated;

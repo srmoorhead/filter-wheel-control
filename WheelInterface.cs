@@ -5,6 +5,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Threading;
+using System.Text.RegularExpressions;
 
 using Filters;
 using System.IO.Ports;
@@ -20,24 +21,38 @@ namespace FilterWheelControl
 
         private static readonly string _PORT_NAME = "COM82"; // This must be set when the filter wheel is attached to the computer.
         private static readonly int _BAUD_RATE = 9600;
-        private static readonly int _TIMEOUT = 1000;
         private static readonly string _NEWLINE = "\r\n";
 
         private static readonly string _MOVE = "mv";
         private static readonly string _HOME = "hm";
         private static readonly string _INQUIRE = "?";
+        //private static readonly string _CHECK_STATUS = "CS";
+        private static readonly string _SUBMIT = "\r";
+        //private static readonly string _PROMPT = ">";
+        private static readonly int _CW = 9999;
+        private static readonly int _CCW = 8888;
 
         private static readonly char[] _DELIMITERS = { '=', ' ', '>', '\r', '\n' };
+
+        private static volatile Queue<string> _QUEUE; // the instruction queue for the filter wheel
+        private static readonly object _connection_lock = new object();
+
+        public static readonly string _TRANSIT = "Transitioning";
 
         #endregion // Static Variables
 
         #region Instance Variables
 
         private SerialPort _fw;
-        private SerialDataReceivedEventHandler _data_received_rotate;
-        private SerialDataReceivedEventHandler _data_received_inquire;
-        private SerialDataReceivedEventHandler _data_received_home;
+        private SerialDataReceivedEventHandler _data_received;
+        private SerialErrorReceivedEventHandler _error_received;
         private ControlPanel _panel;
+        private System.Windows.Threading.DispatcherTimer _send_command_timer;
+        private System.Windows.Threading.DispatcherTimer _timeout_timer;
+        private volatile bool _is_free;
+        private volatile string _current_filter;
+        private volatile bool _connected;
+
 
         #endregion // Instance Variables 
 
@@ -50,191 +65,359 @@ namespace FilterWheelControl
         {
             try
             {
-                _fw = new SerialPort(_PORT_NAME, _BAUD_RATE);
-                _fw.NewLine = _NEWLINE; // newline character
-                _fw.ReadTimeout = _TIMEOUT; // 1s to read, then give up
-                _panel = p;
+                OpenPortConnection();
+                
+                // Save the control panel object and create the command queue
+                this._panel = p;
+                _QUEUE = new Queue<string>();
 
-                // Create event handlers for DataRecieved event
-                _data_received_rotate = new SerialDataReceivedEventHandler(_fw_DataReceived_Rotate);
-                _data_received_inquire = new SerialDataReceivedEventHandler(_fw_DataReceived_Inquire);
-                _data_received_home = new SerialDataReceivedEventHandler(_fw_DataReceived_Home);
+                // Create event handler for DataRecieved ErrorReceived events
+                this._data_received = new SerialDataReceivedEventHandler(_fw_DataReceived);
+                this._error_received = new SerialErrorReceivedEventHandler(_fw_ErrorReceived);
+                _fw.ErrorReceived += _error_received;
+                
 
-                try
-                {
-                    _fw.Open();
-                }
-                catch (Exception e)
-                {
-                    ProvideErrorInformation(e.Message);
-                }
-                _fw.Close();
+                // Create timer for queue sending
+                _send_command_timer = new System.Windows.Threading.DispatcherTimer();
+                _send_command_timer.Tick += new EventHandler(_send_command_Tick);
+                _send_command_timer.Interval = new TimeSpan(0, 0, 0, 0, 50); // try to send a new command every 50ms
+
+                // Create time for timeout
+                _timeout_timer = new System.Windows.Threading.DispatcherTimer();
+                _timeout_timer.Interval = new TimeSpan(0, 0, 6);
+
+                _connected = true;
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusConnected()));
             }
             catch (Exception e)
             {
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusDisconnected()));
                 ProvideErrorInformation(e.Message);
             }
+        }
+
+        private void ProvideErrorInformation(string s) 
+        {
+            MessageBox.Show("There was an error establishing a connection to the filter wheel.  Please see this (possibly helpful) info:\n\n" + s);
         }
 
         #endregion // Constructors
 
-        #region Modifiers
+        #region Port Communications
 
         /// <summary>
-        /// Rotates the filter wheel counter clockwise w.r.t. the camera.
+        /// Opens a connection to _PORT_NAME with a Baud Rate of _BAUD_RATE.
+        /// Sets the newline character to _NEWLINE and the timeout time to _TIMEOUT.
         /// </summary>
-        public void RotateCounterClockwise()
+        private void OpenPortConnection() 
         {
-            try
+            // Open the port connection
+            this._fw = new SerialPort(_PORT_NAME, _BAUD_RATE);
+            this._fw.NewLine = _NEWLINE; // newline character
+            _connected = true;
+        }
+
+        /// <summary>
+        /// Adds a command to the command queue for the filter wheel.
+        /// </summary>
+        /// <param name="s">The string holding the command to be added.  The string must be formatted correctly.</param>
+        private void AddToQueue(string s)
+        {
+            lock (_connection_lock)
             {
-                int cur = GetCurrentPosition();
-                if (cur == -1)
-                    return;
+                _QUEUE.Enqueue(s);
+                _send_command_timer.Start();
+                
+            }
+        }
 
-                int move_to;
+        /// <summary>
+        /// Sends a command to the filter wheel on every timer tick.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void _send_command_Tick(object sender,  EventArgs e)
+        {
+            if (_is_free && _QUEUE.Count > 0)
+            {
+                try
+                {
+                    _is_free = false;
 
-                if (cur == _LOADED_FILTERS.Count - 1)
-                    move_to = 0;
+                    _fw.Open();
+                    _fw.DataReceived += _data_received;
+
+                    string command = _QUEUE.Dequeue();
+                    if (command.Contains(_MOVE) || command.Contains(_HOME))
+                    {
+                        if (command.Contains(Convert.ToString(_CW)))
+                        {
+                            int cur = _LOADED_FILTERS.IndexOf(_current_filter);
+                            command = cur == 0 ? _MOVE + (_LOADED_FILTERS.Count - 1) + _SUBMIT : _MOVE + (_LOADED_FILTERS.IndexOf(_current_filter) - 1) + _SUBMIT;
+                            _timeout_timer.Interval = new TimeSpan(0, 0, 3);
+                        }
+                        else if (command.Contains(Convert.ToString(_CCW)))
+                        {
+                            int cur = _LOADED_FILTERS.IndexOf(_current_filter);
+                            command = cur == _LOADED_FILTERS.Count - 1 ? _MOVE + 0 + _SUBMIT : _MOVE + (_LOADED_FILTERS.IndexOf(_current_filter) + 1) + _SUBMIT;
+                            _timeout_timer.Interval = new TimeSpan(0, 0, 3);
+                        }
+
+                        Application.Current.Dispatcher.BeginInvoke(new Action(_panel.UpdateFWInstrumentRotate));
+                        _current_filter = _TRANSIT;
+                    }
+
+                    _fw.WriteLine(command);
+                    _timeout_timer.Tick += _timeout_timer_Tick;
+                    _timeout_timer.Start();
+                }
+                catch (Exception ex)
+                {
+                    _send_command_timer.Stop();
+                    _QUEUE.Clear();
+                    _connected = false;
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusDisconnected()));
+                    MessageBox.Show("The connection to the filter wheel has been lost.  Please attempt to restore a connection.\n\nNo more filter movements will occur.  You may want to halt data acquisition until the problem is resolved.\n\nHere is some more information:\n" + ex.Message);
+                }
+            }
+            else if (_QUEUE.Count == 0)
+                _send_command_timer.Stop();
+        }
+
+        /// <summary>
+        /// Processes the output from the commands sent to the filter wheel.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void _fw_DataReceived(object sender, SerialDataReceivedEventArgs e)
+        {
+            lock (_connection_lock)
+            {
+                _timeout_timer.Stop();
+                _timeout_timer.Tick -= _timeout_timer_Tick;
+                _timeout_timer.Interval = new TimeSpan(0, 0, 6);
+                _fw.DataReceived -= _data_received;
+                string output = _fw.ReadExisting();
+
+                // Handle the inquiry output
+                if (output.Contains("W1 = "))
+                    ProcessInquiry(output);
+                
+                if(_fw.IsOpen)
+                    _fw.Close();
+                _is_free = true;
+            }
+        }
+
+        /// <summary>
+        /// Stops command processing, alerts the user, and clears the queue if an error is received.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void _fw_ErrorReceived(object sender, SerialErrorReceivedEventArgs e)
+        {
+            _send_command_timer.Stop();
+            _timeout_timer.Stop();
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusDisconnected()));
+            
+            ProvideErrorInformation("An unknown connection error with the filter wheel was recieved during normal operation.  Please double check the connection before continuing.");
+            if (_fw.IsOpen)
+            {
+                _fw.Close();
+                _is_free = true;
+            }
+            else
+                _is_free = true;
+            _QUEUE.Clear();
+        }
+
+        /// <summary>
+        /// Attempts to open a port to the filter wheel.
+        /// </summary>
+        /// <returns>0 if a port is already open or is opened and then closed successfully, 1 otherwise.</returns>
+        public int PingConnection()
+        {
+            lock (_connection_lock)
+            {
+                bool last_status = _connected;
+                int result;
+                
+                if (_fw.IsOpen)
+                {
+                    _connected = true;
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusConnected()));
+                    result = 0;
+                }
                 else
-                    move_to = GetCurrentPosition() + 1;
+                {
+                    try
+                    {
+                        _is_free = false;
+                        _fw.Open();
+                        if (_fw.IsOpen)
+                        {
+                            _fw.Close();
+                            _is_free = true;
+                            _connected = true;
+                            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusConnected()));
+                            result = 0;
+                        }
+                        else
+                        {
+                            _is_free = true;
+                            _connected = false;
+                            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusDisconnected()));
+                            result = 1;
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        if (e.Message == "Port is already open.")
+                        {
+                            _connected = true;
+                            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusConnected()));
+                            result = 0;
+                        }
+                        else
+                        {
+                            _connected = false;
+                            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusDisconnected()));
+                            result = 1;
+                        }
+                    }
+                }
 
-                OpenPort();
-                _fw.WriteLine(move_to + _MOVE + "\r");
-                _fw.DataReceived += _data_received_rotate;
-            }
-            catch (Exception e)
-            {
-                ProvideErrorInformation(e.Message);
+                if (last_status == false && _connected == true)
+                    Home();
+                
+                return result;
             }
         }
 
         /// <summary>
-        /// Rotates the filter wheel clockwise w.r.t. the camera.
+        /// Handles the case of a timeout with the filter wheel.
         /// </summary>
-        public void RotateClockwise()
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void _timeout_timer_Tick(object sender, EventArgs e)
+        {
+            _connected = false;
+            _send_command_timer.Stop();
+            _timeout_timer.Stop();
+            _timeout_timer.Tick -= _timeout_timer_Tick;
+            _QUEUE.Clear();
+
+            _fw.DataReceived -= _fw_DataReceived;
+
+            try
+            {
+                if (_fw.IsOpen)
+                {
+                    _fw.Close();
+                    _is_free = true;
+                }
+            }
+            catch (Exception)
+            {
+                InformDisconnect();
+                return;
+            }
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusDisconnected()));
+            MessageBox.Show("Commands to the filter wheel have timed out.\nPlease check all hardware connections, including filter wheel motor power, and try again.", "Timeout Error");
+        }
+
+        /// <summary>
+        /// Resets the connection to the port.
+        /// Clears all commands from the Queue.
+        /// </summary>
+        public void ResetConnection()
         {
             try
             {
-                int cur = GetCurrentPosition();
-                if (cur == -1)
-                    return;
+                // Stop all current command processing, clear the queue, and close the port
+                _send_command_timer.Stop();
+                _QUEUE.Clear();
+                if (_fw.IsOpen)
+                    _fw.Close();
+                _is_free = true;
+                _connected = false;
 
-                int move_to;
+                // Dispose the current serial port connection
+                _fw.Dispose();
+                _fw = null;
 
-                if (cur == 0)
-                    move_to = _LOADED_FILTERS.Count - 1;
-                else
-                    move_to = GetCurrentPosition() - 1;
-
-                OpenPort();
-                _fw.WriteLine(move_to + _MOVE + "\r");
-                _fw.DataReceived += _data_received_rotate;
+                // Attempt to reconnect to the filter wheel
+                OpenPortConnection();
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusConnected()));
             }
             catch (Exception e)
             {
-                ProvideErrorInformation(e.Message);
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusDisconnected()));
+                MessageBox.Show("An error occurred while attempting to reset the connection.  Here is some more information:\n\n" + e.Message);
             }
         }
 
         /// <summary>
-        /// Rotates the filter wheel to the specified filter
+        /// Closes all connections to the filter wheel.
+        /// Discards both buffers.
         /// </summary>
-        /// <param name="type">A string representing the filter type to rotate to.  Must be included in _LOADED_FILTERS</param>
-        public void RotateToFilter(object type)
+        public void ShutDown()
         {
-            try
-            {
-                OpenPort();
-                _fw.WriteLine(_LOADED_FILTERS.IndexOf((string)type) + _MOVE + "\r");
-                _fw.DataReceived += _data_received_rotate;
-            }
-            catch (Exception e)
-            {
-                ProvideErrorInformation(e.Message);
-            }
-        }
-
-        /// <summary>
-        /// Sends the home command to the filter wheel so it can find a known position.
-        /// </summary>
-        public void Home()
-        {
-            try
-            {
-                OpenPort();
-                _fw.WriteLine(_HOME + "\r");
-                _fw.DataReceived += _data_received_home;
-            }
-            catch (Exception e)
-            {
-                ProvideErrorInformation(e.Message);
-            }
-        }
-
-        /// <summary>
-        /// Opens a port if it is not already open.
-        /// </summary>
-        private void OpenPort()
-        {
-            if (!_fw.IsOpen)
-                _fw.Open();
-        }
-
-        /// <summary>
-        /// Closes the port if it is open.
-        /// </summary>
-        public void ClosePort()
-        {
+            _send_command_timer.Stop();
+            _timeout_timer.Stop();
+            _fw.ErrorReceived -= _error_received;
+            _QUEUE.Clear();
             if (_fw.IsOpen)
                 _fw.Close();
+            _is_free = true;
+            _fw.DiscardInBuffer();
+            _fw.DiscardOutBuffer();
+            _fw.Dispose();
         }
 
         /// <summary>
-        /// Displays a MessageBox with some information should a try/catch block fail.
+        /// Stops the queue command timer and informs the user of a disconnect.
         /// </summary>
-        private void ProvideErrorInformation(string message)
+        public void InformDisconnect()
         {
-            MessageBox.Show("There has been an error communicating with the filter wheel.\nHere is some more (possibly helpful) info:  " + message);
+            _send_command_timer.Stop();
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.PingStatusDisconnected()));
+            MessageBox.Show("The filter wheel is not connected.  Please Ping the connection and try again.\n\nIf the problem persists, please check all hardware components.");
         }
 
-        #endregion // Modifiers
+        #endregion // Port Communications
 
-        #region Event Handlers
+        #region Output Processing
 
-        public void _fw_DataReceived_Rotate(object sender, SerialDataReceivedEventArgs e)
+        /// <summary>
+        /// Processes the result of an inquiry command.
+        /// Updates the Filter Wheel instrument on the instrument panel.
+        /// Does nothing if the result is unknown (?).
+        /// </summary>
+        /// <param name="inq">A string holding the output of the inquire command.</param>
+        private void ProcessInquiry(string inq)
         {
-            _fw.DataReceived -= _data_received_rotate;
-            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.UpdateFWInstrumentOrder()));
+            string[] values = inq.Split(_DELIMITERS, StringSplitOptions.RemoveEmptyEntries);
+
+            if (values[1] == "?")
+            {
+                return;
+            }
+            else
+            {
+                int cur = Convert.ToInt16(values[1]);
+                Application.Current.Dispatcher.Invoke(new Action(() => _panel.UpdateFWInstrumentOrder(BuildOrderedSet(cur))));
+                _current_filter = _LOADED_FILTERS[cur];
+            }
         }
-
-        public void _fw_DataReceived_Inquire(object sender, SerialDataReceivedEventArgs e)
-        {
-            _fw.DataReceived -= _data_received_inquire;
-            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.UpdateFWInstrumentOrder()));
-        }
-
-        public void _fw_DataReceived_Home(object sender, SerialDataReceivedEventArgs e)
-        {
-            _fw.DataReceived -= _data_received_home;
-            Application.Current.Dispatcher.BeginInvoke(new Action(() => _panel.UpdateFWInstrumentOrder()));
-        }
-
-        #endregion // Event Handlers
-
-        #region Accessors
 
         /// <summary>
         /// Provides the filters currently in the wheel, ordered with the 0th element being the filter in the prime position, moving clockwise.
         /// </summary>
-        /// <returns>A list of strings holding the filter types.  Null if the wheel position is unknown.</returns>
-        public List<string> GetOrderedSet()
+        /// <returns>A list of strings holding the filter types.</returns>
+        private List<string> BuildOrderedSet(int cur)
         {
-            int cur = GetCurrentPosition();
-            if (cur == -1)
-                return null;
-
             List<string> ordered = new List<string>();
-
             int i = cur;
             while (i < _LOADED_FILTERS.Count)
             {
@@ -252,50 +435,125 @@ namespace FilterWheelControl
             return ordered;
         }
 
+        #endregion // Output Processing
+
+        #region Input Processing
+
         /// <summary>
-        /// Retrieves the current position of the filter and associates that back to the type of filter in that position.
+        /// Rotates the filter wheel to the specified filter.  
+        /// Does nothing if the input is not a filter type currently in the filter wheel.
         /// </summary>
-        /// <returns>A string holding the type of the filter in the prime position (in front of the camera).  If the current position is not known, returns null.</returns>
-        public string GetCurrentFilter()
+        /// <param name="type">A string representing the filter type to rotate to.  Must be included in _LOADED_FILTERS</param>
+        public void RotateToFilter(object type)
         {
-            int cur = GetCurrentPosition();
-            if (cur == -1)
+            // Scrub input
+            string ftype;
+            try
             {
-                return null;
+                ftype = (string)type;
             }
-            return _LOADED_FILTERS[Convert.ToInt16(GetCurrentPosition())];
+            catch (FormatException)
+            {
+                return;
+            }
+
+            // If type is in _LOADED_FILTERS, rotate to it.
+            ftype = (string)type;
+            if (_LOADED_FILTERS.Contains(ftype))
+            {
+                int loc = _LOADED_FILTERS.IndexOf(ftype);
+                MoveTo(loc); 
+            }
         }
 
         /// <summary>
-        /// Opens a port to the filter wheel and inquires what position is currently in front of the camera.
+        /// Adds the mv command to the filter wheel command queue, followed by the inquire command.
         /// </summary>
-        /// <returns>The integer of the position in front of the camera. -1 if the wheel is currently rotating.</returns>
-        public int GetCurrentPosition()
+        /// <param name="loc">The location to move the filter wheel to.</param>
+        private void MoveTo(int loc)
         {
-            OpenPort();
-            _fw.WriteLine(_INQUIRE + "\r");
-            Thread.Sleep(100);
-            string report = _fw.ReadExisting();
-
-            ClosePort();
-
-            string[] values = report.Split(_DELIMITERS, StringSplitOptions.RemoveEmptyEntries);
-
-            if (values[1] == "?")
-                return -1;
+            if (_connected)
+            {
+                AddToQueue(loc + _MOVE + _SUBMIT);
+                Inquire();
+            }
             else
-                return Convert.ToInt16(values[1]);
+                InformDisconnect();
         }
 
         /// <summary>
-        /// Determines if the filter wheel must rotate to reach the filter type represented by f.
+        /// Adds the hm command to the filter wheel command queue, followed by the inquire command.
         /// </summary>
-        /// <param name="f">The filter desired.</param>
-        /// <returns>True if the current prime filter type is not the same as the desired filter type, False otherwise.</returns>
-        public bool MustRotate(string f)
+        public void Home()
         {
-            return f != GetCurrentFilter();
+            if (_connected)
+            {
+                AddToQueue(_HOME + _SUBMIT);
+                Inquire();
+            }
+            else
+                InformDisconnect();
         }
+
+        /// <summary>
+        /// Clears the queue and adds the hm command to the filter wheel command queue, followed by the inquire command.
+        /// </summary>
+        public void EmergencyHome()
+        {
+            if (_connected)
+            {
+                _QUEUE.Clear();
+                AddToQueue(_HOME + _SUBMIT);
+                Inquire();
+            }
+            else
+                InformDisconnect();
+        }
+
+        /// <summary>
+        /// Add the ? command to the filter wheel command queue.
+        /// </summary>
+        public void Inquire()
+        {
+            if (_connected)
+            {
+                AddToQueue(_INQUIRE + _SUBMIT);
+            }
+            else
+                InformDisconnect();
+        }
+
+        /// <summary>
+        /// Sets up the system for a single movement of the wheel in the clockwise direction w.r.t. the camera.
+        /// </summary>
+        public void Clockwise()
+        {
+            if (_connected)
+            {
+                Inquire();
+                MoveTo(_CW);
+            }
+            else
+                InformDisconnect();
+        }
+
+        /// <summary>
+        /// Sets up the system for a single movement of the wheel in the counterclockwise direction w.r.t. the camera.
+        /// </summary>
+        public void CounterClockwise()
+        {
+            if (_connected)
+            {
+                Inquire();
+                MoveTo(_CCW);
+            }
+            else
+                InformDisconnect();
+        }
+
+        #endregion // Input Processing
+
+        #region Accessors
 
         /// <summary>
         /// Returns the time, in seconds, between the two provided filters, assuming a constant time between adjacent filters of _TIME_BETWEEN_ADJACENT_FILTERS
@@ -310,40 +568,6 @@ namespace FilterWheelControl
             int distance = Math.Abs(f2_index - f1_index);
 
             return Math.Min(distance, _LOADED_FILTERS.Count - distance) * _TIME_BETWEEN_ADJACENT_FILTERS;
-        }
-
-        /// <summary>
-        /// Returns the time, in seconds, from the current filter to the provided filter, assuming a constant time between adjacent filters of _TIME_BETWEEN_ADJACENT_FILTERS
-        /// </summary>
-        /// <param name="f">The filter to rotate to</param>
-        /// <returns>The time, in seconds, from the current filter to the provided filter</returns>
-        public double TimeToFilter(string f)
-        {
-            return TimeBetweenFilters(this.GetCurrentFilter(), f);
-        }
-
-        /// <summary>
-        /// Attempts to open a port to the filter wheel.
-        /// </summary>
-        /// <returns></returns>
-        public string PingConnection()
-        {
-            try
-            {
-                _fw.Open();
-                if (_fw.IsOpen)
-                {
-                    ClosePort();
-                    return "The filter wheel seems to be connected.";
-                }
-                else
-                    return "The filter wheel is connected, but access was denied.  Please wait a few moments and try to Ping again.\n\nIf you have already done that, try disconnecting/reconnecting the filter wheel.";
-            }
-            catch (Exception e)
-            {
-                ClosePort();
-                return "You have bigger problems than I expected...\nTry disconnecting/reconnecting the filter wheel and restarting the add-in.\nHere's a little more information:\n\n" + e.Message;
-            }
         }
 
         /// <summary>
