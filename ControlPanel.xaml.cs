@@ -59,21 +59,12 @@ namespace FilterWheelControl
         
         // Instance variables for acquisition
         private FilterSetting _current_setting;
+        private volatile string _current_filter; // updated every time UpdateFWInstrumentOrder is called
         private bool _transitioning;
         private int _iteration;
         WheelInterface _wi;
         private readonly object _fw_rotation_lock;
-
-        // Custom event handlers
-        EventHandler<ImageDataSetReceivedEventArgs> _IDS_received_automated;
-        EventHandler<ExperimentCompletedEventArgs> _experiment_complete_automated;
-        EventHandler<ExperimentStartedEventArgs> _experiment_start_automated;
-        EventHandler<ExperimentCompletedEventArgs> _experiment_complete_manual;
-        EventHandler<ExperimentStartedEventArgs> _experiment_start_manual;
-
-        // Instance variables for constructor
-        private bool _did_load;
-        
+        private volatile bool _on_manual;
 
         #endregion // Instance Variables
 
@@ -120,30 +111,13 @@ namespace FilterWheelControl
                 JumpSelectionBox.Items.Add(WheelInterface._LOADED_FILTERS[i]);
             }
             
-            // Set the initial Manual Control setting
+            _exp.ExperimentStarted += new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted);
+            _exp.ExperimentCompleted += new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted); ;
+            _exp.ImageDataSetReceived += new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived);
             EnterManualControl();
 
             // Set up other interface properties
-            SetUpEventHandlers();
             SetUpTimer();
-
-            // Let the caller know we loaded
-            _did_load = true;
-        }
-
-        /// <summary>
-        /// Sets up the initial event handlers for Run and Acquire and hooks them up to the events.
-        /// The initial state is in Manual Control.
-        /// </summary>
-        private void SetUpEventHandlers()
-        {
-            // Create event handlers
-            _experiment_complete_manual = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_ManualControl);
-            _experiment_start_manual = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_ManualControl);
-
-            // Hook up to manual control handlers
-            _exp.ExperimentStarted += _experiment_start_manual;
-            _exp.ExperimentCompleted += _experiment_complete_manual;
         }
 
         /// <summary>
@@ -152,7 +126,6 @@ namespace FilterWheelControl
         private void SetUpTimer()
         {
             _elapsedTimeClock = new System.Windows.Threading.DispatcherTimer();
-            _elapsedTimeClock.Tick += new EventHandler(elapsedTimeClock_Tick);
             _elapsedTimeClock.Interval = new TimeSpan(0, 0, 1); // updates every 1 second
         }
 
@@ -194,30 +167,16 @@ namespace FilterWheelControl
         /// </summary>
         private void EnterManualControl()
         {
-            // Update UI to reflect option change
+            // Update UI to reflect manual control change
             AutomatedControlDescription.BorderBrush = Brushes.Transparent;
             ManualControlDescription.BorderBrush = Brushes.Gray;
             JumpButton.IsHitTestVisible = true;
             JumpSelectionBox.IsHitTestVisible = true;
             TriggerSlewAdjust.IsHitTestVisible = false;
             EfficientOrder.IsHitTestVisible = false;
-
-            // Disconnect preview and acquire from custom event handlers
-            _exp.ImageDataSetReceived -= _IDS_received_automated;
-            _exp.ExperimentCompleted -= _experiment_complete_automated;
-            _exp.ExperimentStarted -= _experiment_start_automated; _exp.ExperimentStarted += _experiment_start_manual;
-            _exp.ExperimentCompleted -= _experiment_complete_manual;
-            _exp.ExperimentStarted -= _experiment_start_manual;
-
-            NullAllEventHandlers();
-
-            // Create new event handlers for preview and acquire
-            _experiment_complete_manual = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_ManualControl);
-            _experiment_start_manual = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_ManualControl);
-
-            // Connect preview and acquire to manual event handlers
-            _exp.ExperimentStarted += _experiment_start_manual;
-            _exp.ExperimentCompleted += _experiment_complete_manual;
+            CW.IsHitTestVisible = true;
+            CCW.IsHitTestVisible = true;
+            _on_manual = true;
         }
 
         /// <summary>
@@ -228,54 +187,16 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         private void AutomatedControl_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                // Update UI to reflect option change
-                ManualControlDescription.BorderBrush = Brushes.Transparent;
-                AutomatedControlDescription.BorderBrush = Brushes.Gray;
-                JumpButton.IsHitTestVisible = false;
-                JumpSelectionBox.IsHitTestVisible = false;
-                TriggerSlewAdjust.IsHitTestVisible = true;
-                EfficientOrder.IsHitTestVisible = true;
-                
-                // Disconnect preview and acquire from all handlers
-                _exp.ExperimentCompleted -= _experiment_complete_manual;
-                _exp.ExperimentStarted -= _experiment_start_manual;
-                _exp.ImageDataSetReceived -= _IDS_received_automated;
-                _exp.ExperimentCompleted -= _experiment_complete_automated;
-                _exp.ExperimentStarted -= _experiment_start_automated;
-
-                NullAllEventHandlers();
-
-                // Create new event handlers for preview and acquire
-                _IDS_received_automated = new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived_Automated);
-                _experiment_complete_automated = new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted_Automated);
-                _experiment_start_automated = new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted_Automated);
-
-                // Hook up preview and acquire to new event handlers
-                _exp.ImageDataSetReceived += _IDS_received_automated;
-                _exp.ExperimentCompleted += _experiment_complete_automated;
-                _exp.ExperimentStarted += _experiment_start_automated;
-            }
-            catch (Exception exp)
-            {
-                MessageBox.Show(exp.Message);
-            }
-        }
-
-        /// <summary>
-        /// Nulls all the automated and manual control event handlers to aid with garbage collection.
-        /// This is a response to the Contract dispose error that occurs on transition between manual and automated control
-        /// if acquisition has been occurring already in this observing session.
-        /// </summary>
-        private void NullAllEventHandlers()
-        {
-            // Null all event handlers
-            _IDS_received_automated = null;
-            _experiment_complete_automated = null;
-            _experiment_start_automated = null;
-            _experiment_complete_manual = null;
-            _experiment_start_manual = null;
+            // Update UI to reflect automated control change
+            ManualControlDescription.BorderBrush = Brushes.Transparent;
+            AutomatedControlDescription.BorderBrush = Brushes.Gray;
+            JumpButton.IsHitTestVisible = false;
+            JumpSelectionBox.IsHitTestVisible = false;
+            TriggerSlewAdjust.IsHitTestVisible = true;
+            EfficientOrder.IsHitTestVisible = true;
+            CW.IsHitTestVisible = false;
+            CCW.IsHitTestVisible = false;
+            _on_manual = false;
         }
 
         #endregion // Manual/Automated Control
@@ -643,263 +564,6 @@ namespace FilterWheelControl
 
         #endregion // Current Settings
 
-        #region Automated Event Handlers
-
-        /// <summary>
-        /// Sets up the system for the next exposure.  If the filter wheel was transitioning, sets up for the first exposure in the new filter.
-        /// Otherwise, updates the _iteration counter.  If the current iteration is the max for the current filter, SetNextExposureTime is called.
-        /// Called after every exposure.
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        public void _exp_ImageDataSetReceived_Automated(object sender, ImageDataSetReceivedEventArgs e)
-        {
-            // Handle the end of a transition frame
-            if (_transitioning)
-            {
-                _transitioning = false;
-                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000); // convert to ms
-            }
-
-            // Update the iteration counter and _current_setting if necessary
-            if (_iteration == _current_setting.NumExposures)
-            {
-                _current_setting = _current_setting.Next;
-                SetNextExposureTime();
-            }
-            else
-                _iteration++;
-
-            // Update the instrument panel
-            UpdateInstrumentPanel();
-        }
-
-        /// <summary>
-        /// Retrieves the first filter setting and calls SetNextExposureTime to determine how to proceed.
-        /// Called every time LightField transitions from Stop to Run or Acquire.
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        public void _exp_ExperimentStarted_Automated(object sender, ExperimentStartedEventArgs e)
-        {
-            // Don't start acquiring if there are no settings in the list.
-            if (_settings_list.GetSettingsCollection().Count() == 0)
-            {
-                MessageBox.Show("Please provide some filter setting to iterate through, or switch to Manual Control.");
-                _exp.Stop();
-            }
-            else
-            {
-                // Disable changes to the settings list and control system and retrieve the first setting
-                Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
-                _current_setting = _settings_list.GetCaptureSettings();
-                ManualControl.IsHitTestVisible = false;
-                _settings_list.CurrentSettingsSave((bool)TriggerSlewAdjust.IsChecked, RetrieveFileNameInfo());
-
-                // Set up the first exposure time, wheel position, and update the instrument panel to reflect this
-                _transitioning = false;
-                SetNextExposureTime();
-                UpdateInstrumentPanel();
-
-                // Initialize other environment variables
-                StartElapsedTimeClock();
-            }  
-        }
-
-        /// <summary>
-        /// Sets the next exposure time to either the transition time or the desired exposure time depending on the situation.
-        /// </summary>
-        private void SetNextExposureTime()
-        {
-            // If we need to rotate, set up to do so
-            string cur = F0.Text;
-            if (cur != _current_setting.FilterType)
-            {
-                _iteration = 0;
-                _transitioning = true;
-
-                // Calculate the rotation time and set the exposure time equal to the rotation time
-                double rotation_time = WheelInterface.TimeBetweenFilters(cur, _current_setting.FilterType);
-                rotation_time = rotation_time % 1 == 0 ? rotation_time - _settings_list.GetTriggerSlewCorrection() : rotation_time;
-                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, rotation_time * 1000);
-
-                // Rotate the filter wheel
-                _wi.RotateToFilter(_current_setting.FilterType);
-            }
-            // Otherwise, set the iteration counter to zero and update the exposure time
-            else
-            {
-                _wi.Inquire();
-                _iteration = 1;
-                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000);
-            }
-        }
-
-        /// <summary>
-        /// Stops the elapsed the clock and sets the final values on the instrument panel.  Allows manual control to be re-enabled.
-        /// Runs when the Stop button is clicked or the desired number of frames are Acquired.
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        public void _exp_ExperimentCompleted_Automated(object sender, ExperimentCompletedEventArgs e)
-        {
-            _elapsedTimeClock.Stop();
-            Application.Current.Dispatcher.BeginInvoke(new Action(EnableFilterSettingsChanges));
-            Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("")));
-            ManualControl.IsHitTestVisible = true;
-            _wi.Home();
-        }
-
-        /// <summary>
-        /// Updated the instrument panel to reflect the current situation.
-        /// If the filter wheel is rotating, updates to show rotation.
-        /// If the filter wheel is not rotating, updates the exposure counter.
-        /// </summary>
-        private void UpdateInstrumentPanel()
-        {
-            if (_transitioning)
-            {
-                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("Rotating to " + _current_setting.FilterType)));
-            }
-            else
-            {
-                String currStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration, _current_setting.NumExposures);
-                Application.Current.Dispatcher.Invoke(new Action(() => UpdatePanelCurrentStatus(currStat)));
-            }
-        }
-
-        /// <summary>
-        /// Captures the current DateTime as the Run Start Time and begins the Elapsed Time clock on the Instrument Panel
-        /// </summary>
-        private void StartElapsedTimeClock()
-        {
-            _runStart = DateTime.Now;
-            this.RunStartTime.Text = _runStart.ToString("HH:mm:ss");
-            this.ElapsedRunTime.Text = "00:00:00";
-            _elapsedTimeClock.Start();
-        }
-
-        /// <summary>
-        /// Stops acquisition, attempts to home the filter wheel, and displays a small message to the user.
-        /// </summary>
-        private void StopAll()
-        {
-            _exp.Stop();
-            _wi.Home();
-            MessageBox.Show("Acquisition has been halted.  There has been an error communicating with the filter wheel.\n\nCommon causes include:\n\nBad usb/ethernet connection.\nLoss of power to filter wheel motor.\n");
-        }
-
-        #endregion // Automated Event Handlers
-
-        #region Filename Info
-
-        /// <summary>
-        /// Returns the string representing the user-specified file name as entered in the LightField settings pane.
-        /// Note that this DOES NOT include the file type (i.e. .spe, .fits, etc.).
-        /// </summary>
-        /// <returns>The string, including directory, of the file name</returns>
-        private string RetrieveFileNameInfo()
-        {
-            string directory = _exp.GetValue(ExperimentSettings.FileNameGenerationDirectory).ToString();
-            string base_name = _exp.GetValue(ExperimentSettings.FileNameGenerationBaseFileName).ToString();
- 
-            string space = " ";
-            if (_exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate) != null)
-            {
-                if ((bool)_exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate))
-                {
-                    if ((FileFormatLocation)_exp.GetValue(ExperimentSettings.FileNameGenerationFileFormatLocation) == FileFormatLocation.Prefix)
-                        base_name = GetFormattedDate((DateFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationDateFormat)) + space + base_name;
-                    else
-                        base_name += space + GetFormattedDate((DateFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationDateFormat));
-                }
-            }
- 
-            if (_exp.GetValue(ExperimentSettings.FileNameGenerationAttachTime) != null)
-            {
-                if ((bool)_exp.GetValue(ExperimentSettings.FileNameGenerationAttachTime))
-                {
-                    if ((FileFormatLocation)_exp.GetValue(ExperimentSettings.FileNameGenerationFileFormatLocation) == FileFormatLocation.Prefix)
-                        base_name = GetFormattedTime((TimeFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationTimeFormat)) + space + base_name;
-                    else
-                        base_name += space + GetFormattedTime((TimeFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationTimeFormat));
-                }
-            }
-            return directory + "\\" + base_name;
-        }
- 
-        /// <summary>
-        /// Given a time format, returns the current time in that format
-        /// </summary>
-        /// <param name="format">The TimeFormat object representing the desired format</param>
-        /// <returns>The current time in the given format</returns>
-        private string GetFormattedTime(TimeFormat format)
-        {
-            DateTime now = DateTime.Now;
- 
-            switch (format)
-            {
-                case TimeFormat.hh_mm_ss_24hr:
-                    return now.ToString("HH_mm_ss");
-                default:
-                    return now.ToString("hh_mm_ss_tt", System.Globalization.CultureInfo.InvariantCulture);
-            }
-        }
- 
-        /// <summary>
-        /// Given a DateFormat, returns the date formatted in that manner.
-        /// </summary>
-        /// <param name="format">A DateFormat object representing how the date should be formatted</param>
-        /// <returns>A string of the date represented in the given format</returns>
-        private string GetFormattedDate(DateFormat format)
-        {
-            DateTime today = DateTime.Today;
-                 
-            switch (format)
-            {
-                case DateFormat.dd_mm_yyyy:
-                    return today.ToString("dd-MM-yyyy");
-                case DateFormat.dd_Month_yyyy: 
-                    return today.ToString("dd-MMMM-yyyy");
-                case DateFormat.mm_dd_yyyy:
-                    return today.ToString("MM-dd-yyyy");
-                case DateFormat.Month_dd_yyyy:
-                    return today.ToString("MMMM-dd-yyyy");
-                case DateFormat.yyyy_mm_dd:
-                    return today.ToString("yyyy-MM-dd");
-                case DateFormat.yyyy_Month_dd:
-                    return today.ToString("yyyy-MMMM-dd");
-                default:
-                    return today.ToString("yyyy-MM-dd");
-            }
-        }
-
-        #endregion // Filename Info
-
-        #region Manual Event Handlers
-
-        /// <summary>
-        /// Turns off the Automated Control option on the interface when acquisition is started in manual control mode.
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        public void _exp_ExperimentStarted_ManualControl(object sender, ExperimentStartedEventArgs e)
-        {
-            AutomatedControl.IsHitTestVisible = false;
-        }
-
-        /// <summary>
-        /// Turns on the Automated Control option on the interface when acquisition is ended in manual control mode.
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        public void _exp_ExperimentCompleted_ManualControl(object sender, ExperimentCompletedEventArgs e)
-        {
-            AutomatedControl.IsHitTestVisible = true;
-        }
-
-        #endregion // Manual Event Handlers
-
         #region Manual Control Buttons
 
         /////////////////////////////////////////////////////////////////
@@ -930,14 +594,34 @@ namespace FilterWheelControl
             }
         }
 
+        /// <summary>
+        /// Sends a signal to the filter wheel to rotate one position clockwise w.r.t. the wheel.
+        /// </summary>
         private void CW_Click(object sender, RoutedEventArgs e)
         {
-            _wi.Clockwise();
+            if (ManualControl.IsChecked == true)
+            {
+                if (_exp.IsRunning)
+                    if (!PleaseHaltCapturingMessage())
+                        return;
+
+                _wi.Clockwise();
+            }
         }
 
+        /// <summary>
+        /// Sends a signal to the filter wheel to rotate one position counterclockwise w.r.t. the wheel.
+        /// </summary>
         private void CCW_Click(object sender, RoutedEventArgs e)
         {
-            _wi.CounterClockwise();
+            if (ManualControl.IsChecked == true)
+            {
+                if (_exp.IsRunning)
+                    if (!PleaseHaltCapturingMessage())
+                        return;
+
+                _wi.CounterClockwise();
+            }
         }
 
         /// <summary>
@@ -953,15 +637,310 @@ namespace FilterWheelControl
 
         #endregion // Manual Control Buttons
 
+        #region Event Handlers
+
+        /// <summary>
+        /// Handles the ExperimentCompleted event for both Manual Control and Automated Control
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        public void _exp_ExperimentCompleted(object sender, ExperimentCompletedEventArgs e)
+        {
+            if (_on_manual)
+            {
+                _exp_ExperimentCompleted_ManualControl();
+            }
+            else
+            {
+                _exp_ExperimentCompleted_Automated();
+            }
+        }
+
+        /// <summary>
+        /// Handles the ExperimentStarted event for both Manual Control and Automated Control
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        public void _exp_ExperimentStarted(object sender, ExperimentStartedEventArgs e)
+        {
+            if (_on_manual)
+            {
+                _exp_ExperimentStarted_ManualControl();
+            }
+            else
+            {
+                _exp_ExperimentStarted_Automated();
+            }
+        }
+
+        /// <summary>
+        /// Handles the ImageDataSetReceived event for both Manual Control and Automated Control
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        public void _exp_ImageDataSetReceived(object sender, ImageDataSetReceivedEventArgs e)
+        {
+            if (_on_manual)
+            {
+                _exp_ImageDataSetReceived_ManualControl();
+            }
+            else
+            {
+                _exp_ImageDataSetReceived_Automated();
+            }
+        }
+
+        #endregion // Event Handlers
+
+        #region Automated Event Methods
+
+        /// <summary>
+        /// Sets up the system for the next exposure.  If the filter wheel was transitioning, sets up for the first exposure in the new filter.
+        /// Otherwise, updates the _iteration counter.  If the current iteration is the max for the current filter, SetNextExposureTime is called.
+        /// Called after every exposure.
+        /// </summary>
+        private void _exp_ImageDataSetReceived_Automated()
+        {
+            // Handle the end of a transition frame
+            if (_transitioning)
+            {
+                _transitioning = false;
+                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000); // convert to ms
+            }
+
+            // Update the iteration counter and _current_setting if necessary
+            if (_iteration == _current_setting.NumExposures)
+            {
+                _current_setting = _current_setting.Next;
+                SetNextExposureTime();
+            }
+            else
+                _iteration++;
+
+            // Update the instrument panel
+            UpdateInstrumentPanel();
+        }
+
+        /// <summary>
+        /// Retrieves the first filter setting and calls SetNextExposureTime to determine how to proceed.
+        /// Called every time LightField transitions from Stop to Run or Acquire.
+        /// </summary>
+        private void _exp_ExperimentStarted_Automated()
+        {
+            // Don't start acquiring if there are no settings in the list.
+            if (_settings_list.GetSettingsCollection().Count() == 0)
+            {
+                MessageBox.Show("Please provide some filter setting to iterate through, or switch to Manual Control.");
+                _exp.Stop();
+            }
+            else
+            {
+                // Disable changes to the settings list and manual control system and retrieve the first setting
+                ManualControl.IsHitTestVisible = false;
+                Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
+                _current_setting = _settings_list.GetCaptureSettings();
+                _settings_list.CurrentSettingsSave((bool)TriggerSlewAdjust.IsChecked, RetrieveFileNameInfo());
+
+                // Set up the first exposure time, wheel position, and update the instrument panel to reflect this
+                _transitioning = false;
+                SetNextExposureTime();
+                UpdateInstrumentPanel();
+
+                // Initialize other environment variables
+                StartElapsedTimeClock();
+            }
+        }
+
+        /// <summary>
+        /// Sets the next exposure time to either the transition time or the desired exposure time depending on the situation.
+        /// </summary>
+        private void SetNextExposureTime()
+        {
+            // If we need to rotate, set up to do so
+            if (_current_filter != _current_setting.FilterType)
+            {
+                _iteration = 0;
+                _transitioning = true;
+
+                // Calculate the rotation time and set the exposure time equal to the rotation time
+                double rotation_time = WheelInterface.TimeBetweenFilters(_current_filter, _current_setting.FilterType);
+                rotation_time = rotation_time % 1 == 0 ? rotation_time - _settings_list.GetTriggerSlewCorrection() : rotation_time;
+                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, rotation_time * 1000);
+
+                // Rotate the filter wheel
+                _wi.RotateToFilter(_current_setting.FilterType);
+            }
+            // Otherwise, set the iteration counter to zero and update the exposure time
+            else
+            {
+                _iteration = 1;
+                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000);
+            }
+        }
+
+        /// <summary>
+        /// Stops the elapsed the clock and sets the final values on the instrument panel.  Allows manual control to be re-enabled.
+        /// Runs when the Stop button is clicked or the desired number of frames are Acquired.
+        /// </summary>
+        private void _exp_ExperimentCompleted_Automated()
+        {
+            _elapsedTimeClock.Stop();
+            _elapsedTimeClock.Tick -= elapsedTimeClock_Tick;
+            Application.Current.Dispatcher.BeginInvoke(new Action(EnableFilterSettingsChanges));
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("")));
+            ManualControl.IsHitTestVisible = true;
+            _wi.Home();
+        }
+
+        /// <summary>
+        /// Captures the current DateTime as the Run Start Time and begins the Elapsed Time clock on the Instrument Panel
+        /// </summary>
+        private void StartElapsedTimeClock()
+        {
+            _runStart = DateTime.Now;
+            this.RunStartTime.Text = _runStart.ToString("HH:mm:ss");
+            this.ElapsedRunTime.Text = "00:00:00";
+            _elapsedTimeClock.Tick += elapsedTimeClock_Tick;
+            _elapsedTimeClock.Start();
+        }
+
+        /// <summary>
+        /// Stops acquisition, attempts to home the filter wheel, and displays a small message to the user.
+        /// </summary>
+        private void StopAll()
+        {
+            _exp.Stop();
+            _elapsedTimeClock.Tick -= elapsedTimeClock_Tick;
+            _wi.PingConnection();
+            MessageBox.Show("Acquisition has been halted.  There has been an error communicating with the filter wheel.\n\nCommon causes include:\n\nBad usb/ethernet connection.\nLoss of power to filter wheel motor.\n");
+        }
+
+        #endregion // Automated Event Methods
+
+        #region Manual Event Methods
+
+        /// <summary>
+        /// Turns off the Automated Control option on the interface when acquisition is started in manual control mode.
+        /// </summary>
+        private void _exp_ExperimentStarted_ManualControl()
+        {
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => AutomatedControl.IsHitTestVisible = false));
+        }
+
+        /// <summary>
+        /// Does nothing currently.
+        /// </summary>
+        private void _exp_ImageDataSetReceived_ManualControl()
+        {
+            return;
+        }
+
+        /// <summary>
+        /// Turns on the Automated Control option on the interface when acquisition is ended in manual control mode.
+        /// </summary>
+        private void _exp_ExperimentCompleted_ManualControl()
+        {
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => AutomatedControl.IsHitTestVisible = true));
+        }
+
+        #endregion // Manual Event Methods
+
+        #region Filename Info
+
+        /// <summary>
+        /// Returns the string representing the user-specified file name as entered in the LightField settings pane.
+        /// Note that this DOES NOT include the file type (i.e. .spe, .fits, etc.).
+        /// </summary>
+        /// <returns>The string, including directory, of the file name</returns>
+        private string RetrieveFileNameInfo()
+        {
+            string directory = _exp.GetValue(ExperimentSettings.FileNameGenerationDirectory).ToString();
+            string base_name = _exp.GetValue(ExperimentSettings.FileNameGenerationBaseFileName).ToString();
+
+            string space = " ";
+            if (_exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate) != null)
+            {
+                if ((bool)_exp.GetValue(ExperimentSettings.FileNameGenerationAttachDate))
+                {
+                    if ((FileFormatLocation)_exp.GetValue(ExperimentSettings.FileNameGenerationFileFormatLocation) == FileFormatLocation.Prefix)
+                        base_name = GetFormattedDate((DateFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationDateFormat)) + space + base_name;
+                    else
+                        base_name += space + GetFormattedDate((DateFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationDateFormat));
+                }
+            }
+
+            if (_exp.GetValue(ExperimentSettings.FileNameGenerationAttachTime) != null)
+            {
+                if ((bool)_exp.GetValue(ExperimentSettings.FileNameGenerationAttachTime))
+                {
+                    if ((FileFormatLocation)_exp.GetValue(ExperimentSettings.FileNameGenerationFileFormatLocation) == FileFormatLocation.Prefix)
+                        base_name = GetFormattedTime((TimeFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationTimeFormat)) + space + base_name;
+                    else
+                        base_name += space + GetFormattedTime((TimeFormat)_exp.GetValue(ExperimentSettings.FileNameGenerationTimeFormat));
+                }
+            }
+            return directory + "\\" + base_name;
+        }
+
+        /// <summary>
+        /// Given a time format, returns the current time in that format
+        /// </summary>
+        /// <param name="format">The TimeFormat object representing the desired format</param>
+        /// <returns>The current time in the given format</returns>
+        private string GetFormattedTime(TimeFormat format)
+        {
+            DateTime now = DateTime.Now;
+
+            switch (format)
+            {
+                case TimeFormat.hh_mm_ss_24hr:
+                    return now.ToString("HH_mm_ss");
+                default:
+                    return now.ToString("hh_mm_ss_tt", System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        /// <summary>
+        /// Given a DateFormat, returns the date formatted in that manner.
+        /// </summary>
+        /// <param name="format">A DateFormat object representing how the date should be formatted</param>
+        /// <returns>A string of the date represented in the given format</returns>
+        private string GetFormattedDate(DateFormat format)
+        {
+            DateTime today = DateTime.Today;
+
+            switch (format)
+            {
+                case DateFormat.dd_mm_yyyy:
+                    return today.ToString("dd-MM-yyyy");
+                case DateFormat.dd_Month_yyyy:
+                    return today.ToString("dd-MMMM-yyyy");
+                case DateFormat.mm_dd_yyyy:
+                    return today.ToString("MM-dd-yyyy");
+                case DateFormat.Month_dd_yyyy:
+                    return today.ToString("MMMM-dd-yyyy");
+                case DateFormat.yyyy_mm_dd:
+                    return today.ToString("yyyy-MM-dd");
+                case DateFormat.yyyy_Month_dd:
+                    return today.ToString("yyyy-MMMM-dd");
+                default:
+                    return today.ToString("yyyy-MM-dd");
+            }
+        }
+
+        #endregion // Filename Info
+
         #region Instrument Panel
 
         /// <summary>
-        /// Updates the filter wheel instrument on the instrument panel to reflect the current order
+        /// Updates the filter wheel instrument on the instrument panel to reflect the current order.
+        /// Updates the _current_filter variable.
         /// </summary>
         public void UpdateFWInstrumentOrder(List<string> newOrder)
         {
             lock (_fw_inst_lock)
             {
+                _current_filter = newOrder[0];
                 for (int i = 0; i < _fw_inst_labels.Count(); i++)
                     _fw_inst_labels[i].Text = newOrder[i];
             }
@@ -1029,6 +1008,22 @@ namespace FilterWheelControl
             MessageBox.Show(message, "Ping Status");
         }
 
+        /// <summary>
+        /// Updated the instrument panel to reflect the current situation.
+        /// </summary>
+        private void UpdateInstrumentPanel()
+        {
+            if (_transitioning)
+            {
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("Rotating to " + _current_setting.FilterType)));
+            }
+            else
+            {
+                String currStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration, _current_setting.NumExposures);
+                Application.Current.Dispatcher.Invoke(new Action(() => UpdatePanelCurrentStatus(currStat)));
+            }
+        }
+
         #endregion Instrument Panel
 
         #region ShutDown/DidLoad
@@ -1039,21 +1034,8 @@ namespace FilterWheelControl
         public void ShutDown()
         {
             _wi.ShutDown();
-            _exp.ExperimentCompleted -= _experiment_complete_manual;
-            _exp.ExperimentStarted -= _experiment_start_manual;
-            _exp.ExperimentStarted -= _experiment_start_automated;
-            _exp.ExperimentCompleted -= _experiment_complete_automated;
-            _exp.ImageDataSetReceived -= _IDS_received_automated;
-        }
-
-        public bool DidLoad()
-        {
-            return _did_load;
         }
 
         #endregion // ShutDown/DidLoad
-
-
-
     }
 }

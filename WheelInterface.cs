@@ -80,7 +80,7 @@ namespace FilterWheelControl
                 // Create timer for queue sending
                 _send_command_timer = new System.Windows.Threading.DispatcherTimer();
                 _send_command_timer.Tick += new EventHandler(_send_command_Tick);
-                _send_command_timer.Interval = new TimeSpan(0, 0, 0, 0, 50); // try to send a new command every 50ms
+                _send_command_timer.Interval = new TimeSpan(0, 0, 0, 0, 10); // try to send a new command every 10ms
 
                 // Create time for timeout
                 _timeout_timer = new System.Windows.Threading.DispatcherTimer();

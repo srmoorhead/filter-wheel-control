@@ -30,12 +30,6 @@ namespace FilterWheelControl
             // Build controls
             control_ = new ControlPanel(app.Experiment, app.DisplayManager);
 
-            if (!control_.DidLoad())
-            {
-                Deactivate();
-                return;
-            }
-
             sv.Content = control_;
             ExperimentViewElement = sv;//control_;
 
