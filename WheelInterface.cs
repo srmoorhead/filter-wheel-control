@@ -17,7 +17,7 @@ namespace FilterWheelControl
         #region Static Variables
 
         public static readonly List<string> _LOADED_FILTERS = new List<string> { "u '", "g '", "r '", "i '", "z '", "EMPTY", "BLOCK", "BG40" };
-        public static readonly double _TIME_BETWEEN_ADJACENT_FILTERS = 1.5; // in seconds
+        public static readonly double _TIME_BETWEEN_ADJACENT_FILTERS = 1.45; // in seconds
 
         private static readonly string _PORT_NAME = "COM82"; // This must be set when the filter wheel is attached to the computer.
         private static readonly int _BAUD_RATE = 9600;
@@ -563,11 +563,21 @@ namespace FilterWheelControl
         /// <returns>The time, in seconds, between the two provided filters.</returns>
         public static double TimeBetweenFilters(string f1, string f2)
         {
-            int f1_index = _LOADED_FILTERS.IndexOf(f1);
-            int f2_index = _LOADED_FILTERS.IndexOf(f2);
-            int distance = Math.Abs(f2_index - f1_index);
+            int stop = _LOADED_FILTERS.Count - 1;
 
-            return Math.Min(distance, _LOADED_FILTERS.Count - distance) * _TIME_BETWEEN_ADJACENT_FILTERS;
+            int pos1 = 0;
+            while((_LOADED_FILTERS[pos1] != f1 && _LOADED_FILTERS[pos1] != f2) && pos1 <= stop)
+            {
+                pos1++;
+            }
+
+            int pos2 = pos1 + 1;
+            while ((_LOADED_FILTERS[pos2] != f1 && _LOADED_FILTERS[pos2] != f2) && pos2 <= stop)
+            {
+                pos2++;
+            }
+
+            return Math.Min((pos2 - pos1), stop - (pos2 - pos1)) * _TIME_BETWEEN_ADJACENT_FILTERS;
         }
 
         /// <summary>

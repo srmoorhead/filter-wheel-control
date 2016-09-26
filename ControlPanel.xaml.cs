@@ -58,9 +58,8 @@ namespace FilterWheelControl
         private CurrentSettingsList _settings_list;
         
         // Instance variables for acquisition
-        private FilterSetting _current_setting;
+        private volatile FilterSetting _current_setting;
         private volatile string _current_filter; // updated every time UpdateFWInstrumentOrder is called
-        private bool _transitioning;
         private int _iteration;
         WheelInterface _wi;
         private readonly object _fw_rotation_lock;
@@ -111,9 +110,9 @@ namespace FilterWheelControl
                 JumpSelectionBox.Items.Add(WheelInterface._LOADED_FILTERS[i]);
             }
             
-            _exp.ExperimentStarted += new EventHandler<ExperimentStartedEventArgs>(_exp_ExperimentStarted);
-            _exp.ExperimentCompleted += new EventHandler<ExperimentCompletedEventArgs>(_exp_ExperimentCompleted); ;
-            _exp.ImageDataSetReceived += new EventHandler<ImageDataSetReceivedEventArgs>(_exp_ImageDataSetReceived);
+            _exp.ExperimentStarted += _exp_ExperimentStarted;
+            _exp.ExperimentCompleted += _exp_ExperimentCompleted;
+            _exp.ImageDataSetReceived += _exp_ImageDataSetReceived;
             EnterManualControl();
 
             // Set up other interface properties
@@ -652,7 +651,12 @@ namespace FilterWheelControl
             }
             else
             {
-                _exp_ExperimentCompleted_Automated();
+                _elapsedTimeClock.Stop();
+                _elapsedTimeClock.Tick -= elapsedTimeClock_Tick;
+                Application.Current.Dispatcher.BeginInvoke(new Action(EnableFilterSettingsChanges));
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("")));
+                ManualControl.IsHitTestVisible = true;
+                _wi.Home();
             }
         }
 
@@ -668,8 +672,29 @@ namespace FilterWheelControl
                 _exp_ExperimentStarted_ManualControl();
             }
             else
-            {
-                _exp_ExperimentStarted_Automated();
+            {   
+                // Don't start acquiring if there are no settings in the list.
+                if (_settings_list.GetSettingsCollection().Count() == 0)
+                {
+                    MessageBox.Show("Please provide some filter setting to iterate through, or switch to Manual Control.");
+                    _exp.Stop();
+                }
+                else
+                {
+                    // Disable changes to the settings list and manual control system and retrieve the first setting
+                    ManualControl.IsHitTestVisible = false;
+                    Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
+                    _current_setting = _settings_list.GetCaptureSettings();
+
+                    // Save the filter settings for this acquisition session
+                    _settings_list.CurrentSettingsSave((bool)TriggerSlewAdjust.IsChecked, RetrieveFileNameInfo());
+
+                    // Set up the first exposure time, wheel position, and update the instrument panel to reflect this
+                    DetermineWheelAndExpTimeVals();
+
+                    // Start the elapsed time clock.
+                    StartElapsedTimeClock();
+                }
             }
         }
 
@@ -686,110 +711,38 @@ namespace FilterWheelControl
             }
             else
             {
-                _exp_ImageDataSetReceived_Automated();
-            }
-        }
-
-        #endregion // Event Handlers
-
-        #region Automated Event Methods
-
-        /// <summary>
-        /// Sets up the system for the next exposure.  If the filter wheel was transitioning, sets up for the first exposure in the new filter.
-        /// Otherwise, updates the _iteration counter.  If the current iteration is the max for the current filter, SetNextExposureTime is called.
-        /// Called after every exposure.
-        /// </summary>
-        private void _exp_ImageDataSetReceived_Automated()
-        {
-            // Handle the end of a transition frame
-            if (_transitioning)
-            {
-                _transitioning = false;
-                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000); // convert to ms
-            }
-
-            // Update the iteration counter and _current_setting if necessary
-            if (_iteration == _current_setting.NumExposures)
-            {
-                _current_setting = _current_setting.Next;
-                SetNextExposureTime();
-            }
-            else
                 _iteration++;
-
-            // Update the instrument panel
-            UpdateInstrumentPanel();
+                if (_iteration == _current_setting.NumExposures)
+                {
+                    _current_setting = _current_setting.Next;
+                    DetermineWheelAndExpTimeVals();
+                }
+                String currStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration + 1, _current_setting.NumExposures);
+                Application.Current.Dispatcher.Invoke(new Action(() => UpdatePanelCurrentStatus(currStat)));
+            }
         }
 
         /// <summary>
-        /// Retrieves the first filter setting and calls SetNextExposureTime to determine how to proceed.
-        /// Called every time LightField transitions from Stop to Run or Acquire.
+        /// Sets the next exposure time value and rotates the wheel if necessary.
+        /// Updates _iteration.
         /// </summary>
-        private void _exp_ExperimentStarted_Automated()
+        private void DetermineWheelAndExpTimeVals()
         {
-            // Don't start acquiring if there are no settings in the list.
-            if (_settings_list.GetSettingsCollection().Count() == 0)
+            string new_type = _current_setting.FilterType;
+            if (_current_filter != new_type)
             {
-                MessageBox.Show("Please provide some filter setting to iterate through, or switch to Manual Control.");
-                _exp.Stop();
+                // Calculate the rotation time and set the exposure time equal to the rotation time
+                double rotation_time = WheelInterface.TimeBetweenFilters(_current_filter, new_type);
+                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, Convert.ToInt32(rotation_time * 1000)); // convert to ms
+                _iteration = -1;
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("Rotating to " + new_type)));
+                _wi.RotateToFilter(new_type);
             }
             else
-            {
-                // Disable changes to the settings list and manual control system and retrieve the first setting
-                ManualControl.IsHitTestVisible = false;
-                Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
-                _current_setting = _settings_list.GetCaptureSettings();
-                _settings_list.CurrentSettingsSave((bool)TriggerSlewAdjust.IsChecked, RetrieveFileNameInfo());
-
-                // Set up the first exposure time, wheel position, and update the instrument panel to reflect this
-                _transitioning = false;
-                SetNextExposureTime();
-                UpdateInstrumentPanel();
-
-                // Initialize other environment variables
-                StartElapsedTimeClock();
-            }
-        }
-
-        /// <summary>
-        /// Sets the next exposure time to either the transition time or the desired exposure time depending on the situation.
-        /// </summary>
-        private void SetNextExposureTime()
-        {
-            // If we need to rotate, set up to do so
-            if (_current_filter != _current_setting.FilterType)
             {
                 _iteration = 0;
-                _transitioning = true;
-
-                // Calculate the rotation time and set the exposure time equal to the rotation time
-                double rotation_time = WheelInterface.TimeBetweenFilters(_current_filter, _current_setting.FilterType);
-                rotation_time = rotation_time % 1 == 0 ? rotation_time - _settings_list.GetTriggerSlewCorrection() : rotation_time;
-                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, rotation_time * 1000);
-
-                // Rotate the filter wheel
-                _wi.RotateToFilter(_current_setting.FilterType);
+                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, Convert.ToInt32(_current_setting.DisplayTime * 1000));
             }
-            // Otherwise, set the iteration counter to zero and update the exposure time
-            else
-            {
-                _iteration = 1;
-                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000);
-            }
-        }
-
-        /// <summary>
-        /// Stops the elapsed the clock and sets the final values on the instrument panel.  Allows manual control to be re-enabled.
-        /// Runs when the Stop button is clicked or the desired number of frames are Acquired.
-        /// </summary>
-        private void _exp_ExperimentCompleted_Automated()
-        {
-            _elapsedTimeClock.Stop();
-            _elapsedTimeClock.Tick -= elapsedTimeClock_Tick;
-            Application.Current.Dispatcher.BeginInvoke(new Action(EnableFilterSettingsChanges));
-            Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("")));
-            ManualControl.IsHitTestVisible = true;
-            _wi.Home();
         }
 
         /// <summary>
@@ -804,6 +757,11 @@ namespace FilterWheelControl
             _elapsedTimeClock.Start();
         }
 
+        #endregion // Event Handlers
+
+        #region Automated Event Methods
+
+        
         /// <summary>
         /// Stops acquisition, attempts to home the filter wheel, and displays a small message to the user.
         /// </summary>
@@ -1008,25 +966,9 @@ namespace FilterWheelControl
             MessageBox.Show(message, "Ping Status");
         }
 
-        /// <summary>
-        /// Updated the instrument panel to reflect the current situation.
-        /// </summary>
-        private void UpdateInstrumentPanel()
-        {
-            if (_transitioning)
-            {
-                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("Rotating to " + _current_setting.FilterType)));
-            }
-            else
-            {
-                String currStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration, _current_setting.NumExposures);
-                Application.Current.Dispatcher.Invoke(new Action(() => UpdatePanelCurrentStatus(currStat)));
-            }
-        }
-
         #endregion Instrument Panel
 
-        #region ShutDown/DidLoad
+        #region ShutDown
 
         /// <summary>
         /// Closes the port to the filter wheel and sets all event handlers back to defaults.
@@ -1034,8 +976,11 @@ namespace FilterWheelControl
         public void ShutDown()
         {
             _wi.ShutDown();
+            _exp.ExperimentStarted -= _exp_ExperimentStarted;
+            _exp.ExperimentCompleted -= _exp_ExperimentCompleted;
+            _exp.ImageDataSetReceived -= _exp_ImageDataSetReceived;
         }
 
-        #endregion // ShutDown/DidLoad
+        #endregion // ShutDown
     }
 }
