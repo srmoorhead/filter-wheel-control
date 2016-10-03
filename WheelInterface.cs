@@ -17,7 +17,7 @@ namespace FilterWheelControl
         #region Static Variables
 
         public static readonly List<string> _LOADED_FILTERS = new List<string> { "u '", "g '", "r '", "i '", "z '", "EMPTY", "BLOCK", "BG40" };
-        public static readonly double _TIME_BETWEEN_ADJACENT_FILTERS = 1.45; // in seconds
+        public static readonly double _TIME_BETWEEN_ADJACENT_FILTERS = 1.49; // in seconds
 
         private static readonly string _PORT_NAME = "COM82"; // This must be set when the filter wheel is attached to the computer.
         private static readonly int _BAUD_RATE = 9600;
@@ -584,7 +584,7 @@ namespace FilterWheelControl
         /// Access the value of _TIME_BETWEEN_ADJACENT_FILTERS
         /// </summary>
         /// <returns>The value of _TIME_BETWEEN_ADJACENT_FILTERS</returns>
-        public double TimeBetweenFilters()
+        public double TimeBetweenAdjacentFilters()
         {
             return _TIME_BETWEEN_ADJACENT_FILTERS;
         }

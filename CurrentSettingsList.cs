@@ -25,7 +25,7 @@ namespace FilterWheelControl
     {
         #region Static Variables
 
-        private static readonly double TRIGGER_SLEW_CORRECTION = 0.002; // seconds
+        private static readonly double TRIGGER_SLEW_CORRECTION = 0.18; // seconds
 
         #endregion // Static Variables
 
@@ -97,11 +97,57 @@ namespace FilterWheelControl
         {
             lock (_current_settings_lock)
             {
+                // Update the Next value for filters 0-(n-1)
                 for (int i = 1; i < _filter_settings.Count; i++)
                 {
-                    _filter_settings[i - 1].Next = _filter_settings[i];
+                    FilterSetting cur = _filter_settings[i - 1];
+                    FilterSetting next = _filter_settings[i];
+
+                    if (cur.FilterType != next.FilterType)
+                    {
+
+                        FilterSetting transit = new FilterSetting
+                        {
+                            FilterType = next.FilterType,
+                            DisplayTime = WheelInterface.TimeBetweenFilters(cur.FilterType, next.FilterType),
+                            UserInputTime = 0,
+                            SlewAdjustedTime = 0,
+                            NumExposures = 1,
+                            OrderLocation = -1
+                        };
+                        cur.Next = transit;
+                        transit.Next = next;
+                    }
+                    else
+                    {
+                        cur.Next = next;
+                    }
                 }
-                _filter_settings[_filter_settings.Count - 1].Next = _filter_settings[0];
+
+                // Update the Next value for filter n (back to 1).
+                FilterSetting last = _filter_settings[_filter_settings.Count - 1];
+                FilterSetting first = _filter_settings[0];
+
+                if (last.FilterType != first.FilterType)
+                {
+
+                    FilterSetting transit = new FilterSetting
+                    {
+                        FilterType = first.FilterType,
+                        DisplayTime = WheelInterface.TimeBetweenFilters(last.FilterType, first.FilterType),
+                        UserInputTime = 0,
+                        SlewAdjustedTime = 0,
+                        NumExposures = 1,
+                        OrderLocation = -1
+                    };
+                    last.Next = transit;
+                    transit.Next = first;
+                }
+                else
+                {
+                    last.Next = first;
+                }
+                
             }
 
             return _filter_settings[0];
@@ -256,17 +302,17 @@ namespace FilterWheelControl
             }
             catch (FormatException)
             {
-                MessageBox.Show("Exposure Time must be a number.\nPlease ensure the entered value is a number zero or greater.");
+                MessageBox.Show("Exposure Time must be a number.\nPlease ensure the entered value is a number zero or greater.", "Doh!");
                 return false;
             }
             if (Convert.ToDouble(input) < 0)
             {
-                MessageBox.Show("Exposure Time must be 0 seconds or greater.\nPlease ensure the entered value is a number zero or greater.");
+                MessageBox.Show("Exposure Time must be 0 seconds or greater.\nPlease ensure the entered value is a number zero or greater.", "Doh!");
                 return false;
             }
             if (input == "NaN")
             {
-                MessageBox.Show("Nice try.  Please enter a number 0 seconds or greater.");
+                MessageBox.Show("Nice try.  Please enter a number 0 seconds or greater.", "Doh!");
                 return false;
             }
             return true;
@@ -286,17 +332,17 @@ namespace FilterWheelControl
             }
             catch (FormatException)
             {
-                MessageBox.Show("The number of frames must be an integer number.\nPlease ensure the entered value is an integer number greater than zero.");
+                MessageBox.Show("The number of frames must be an integer number.\nPlease ensure the entered value is an integer number greater than zero.", "Doh!");
                 return false;
             }
             if (Convert.ToInt16(input) <= 0)
             {
-                MessageBox.Show("The number of frames must be greater than zero.\nPlease ensure the entered value is a number greater than zero.");
+                MessageBox.Show("The number of frames must be greater than zero.\nPlease ensure the entered value is a number greater than zero.", "Doh!");
                 return false;
             }
             if (input == "NaN")
             {
-                MessageBox.Show("Nice try.  Please enter a number greater than zero.");
+                MessageBox.Show("Nice try.  Please enter a number greater than zero.", "Doh!");
                 return false;
             }
             return true;
@@ -312,7 +358,7 @@ namespace FilterWheelControl
             // Ensure user selected a filter
             if (f == null || f.ToString() == "")
             {
-                MessageBox.Show("You must select a filter.\nPlease ensure you have selected a filter from the drop down menu.");
+                MessageBox.Show("You must select a filter.\nPlease ensure you have selected a filter from the drop down menu.", "Doh!");
                 return false;
             }
             return true;
