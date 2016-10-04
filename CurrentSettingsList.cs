@@ -25,7 +25,7 @@ namespace FilterWheelControl
     {
         #region Static Variables
 
-        private static readonly double TRIGGER_SLEW_CORRECTION = 0.18; // seconds
+        private static readonly double TRIGGER_SLEW_CORRECTION = 0.005; // seconds
 
         #endregion // Static Variables
 

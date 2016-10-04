@@ -64,6 +64,7 @@ namespace FilterWheelControl
         WheelInterface _wi;
         private readonly object _fw_rotation_lock;
         private volatile bool _on_manual;
+        private volatile bool _rotate;
 
         #endregion // Instance Variables
 
@@ -755,7 +756,7 @@ namespace FilterWheelControl
                     transit.Next = _current_setting;
                     _current_setting = transit;
 
-                    _exp.SetValue(CameraSettings.ShutterTimingExposureTime, transit.DisplayTime * 1000);
+                    _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000);
                     _wi.RotateToFilter(_current_setting.FilterType);
 
                     Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("Rotating to " + transit.FilterType)));
@@ -768,17 +769,29 @@ namespace FilterWheelControl
                     String curStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration, _current_setting.NumExposures);
                     Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus(curStat)));
                 }
-                
+
                 // Start the elapsed time clock
                 Application.Current.Dispatcher.BeginInvoke(new Action(() => StartElapsedTimeClock()));
+                
+                // Begin thread to set values for second exposure
+                Thread next_exp = new Thread(SetNextExpTime);
+                next_exp.Start();
             }
         }
 
         /// <summary>
-        /// Handles the ImageDataSetReceived event when the filter wheel control panel is in automated control mode.
+        /// Does the heavy lifting during an exposure so that between-exposure processing time is minimized.
+        /// Updates the exposure time, _iteration counter, and determines if the wheel needs to rotate next exposure.
         /// </summary>
-        private void _exp_ImageDataSetReceived_Automated() 
+        private void SetNextExpTime()
         {
+            // Give LF a little time to get into the next exposure (This is assuming we're only taking 1 exp/s maximum).
+            Thread.Sleep(500);
+            
+            // Start updating values
+
+            // If the frame currently being exposed is the final frame in this filter setting, move to the next one.
+            // Else, just update the iterator.
             if (_iteration == _current_setting.NumExposures)
             {
                 // Move to the next filter setting
@@ -789,32 +802,39 @@ namespace FilterWheelControl
                 if (_current_setting.OrderLocation == -1)
                 {
                     // We must rotate
-                    _wi.RotateToFilter(_current_setting.FilterType);
-                    Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("Rotating to " + _current_setting.FilterType))); // "Rotating to f", f in _LOADED_FILTERS
-                }
-                else
-                {
-                    // We just need to update the instrument panel
-                    String curStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration, _current_setting.NumExposures);
-                    Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus(curStat)));
+                    _rotate = true;
                 }
             }
             else
             {
-                // We are staying in the same filter setting.  Update the iteration and instrument panel
+                // We are staying in the same filter setting.  Update the iteration
                 _iteration++;
-                String curStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration, _current_setting.NumExposures);
-                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus(curStat)));
+                _rotate = false;
             }
         }
 
         /// <summary>
-        /// Builds the formatted string to display on the instrument panel current status section
+        /// Handles the ImageDataSetReceived event when the filter wheel control panel is in automated control mode.
         /// </summary>
-        private void UpdateUIPanel()
+        private void _exp_ImageDataSetReceived_Automated() 
         {
-            String curStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration, _current_setting.NumExposures);
-            Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus(curStat)));
+            if (_rotate)
+            {
+                // Tell the filter wheel to start rotating
+                _wi.RotateToFilter(_current_setting.FilterType);
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("Rotating to " + _current_setting.FilterType))); // "Rotating to f", f in _LOADED_FILTERS
+                _rotate = false;
+            }
+            else
+            {
+                // We are staying in the same filter setting.  Update the instrument panel.
+                String curStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration, _current_setting.NumExposures);
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus(curStat)));
+            }
+
+            // Begin the thread to set values for the next exposure
+            Thread next_exp = new Thread(SetNextExpTime);
+            next_exp.Start();
         }
 
         /// <summary>
