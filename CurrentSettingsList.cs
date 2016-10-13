@@ -90,7 +90,7 @@ namespace FilterWheelControl
    
         
         /// <summary>
-        /// Retrieves all the capture settings.  More efficient than calling each setting accessor individually
+        /// Retrieves all the capture settings.
         /// </summary>
         /// <returns>A Tuple holding the first FilterSetting and the number of frames in a sequence (not including transitions)</returns>
         public FilterSetting GetCaptureSettings() 
@@ -140,6 +140,7 @@ namespace FilterWheelControl
                         NumExposures = 1,
                         OrderLocation = -1
                     };
+                    MessageBox.Show("Display time: " + transit.DisplayTime);
                     last.Next = transit;
                     transit.Next = first;
                 }
@@ -151,6 +152,49 @@ namespace FilterWheelControl
             }
 
             return _filter_settings[0];
+        }
+
+        /// <summary>
+        /// Calcualtes the time spent in transition for a sequence, including the transition from n to 0.
+        /// </summary>
+        /// <returns>The time, in seconds, spent transitioning.</returns>
+        public double CalculateTransitionTime()
+        {
+            double total_transit_time = 0;
+
+            if (_filter_settings.Count > 0)
+            {
+                // calculate the 0 to n transitions
+                for (int i = 1; i < _filter_settings.Count; i++)
+                {
+                    if (_filter_settings[i - 1].FilterType != _filter_settings[i].FilterType)
+                        total_transit_time += WheelInterface.TimeBetweenFilters(_filter_settings[i - 1].FilterType, _filter_settings[i].FilterType);
+                }
+
+                // calculate the n to 0 transition
+                if (_filter_settings[_filter_settings.Count - 1].FilterType != _filter_settings[0].FilterType)
+                {
+                    total_transit_time += WheelInterface.TimeBetweenFilters(_filter_settings[_filter_settings.Count - 1].FilterType, _filter_settings[0].FilterType);
+                }
+            }
+
+            return total_transit_time;
+        }
+
+        /// <summary>
+        /// Calculates the total time the camera is taking exposures.
+        /// </summary>
+        /// <returns>The time, in seconds, that is spent exposing.</returns>
+        public double CalculateExposedTime()
+        {
+            double total_exposing_time = 0;
+
+            foreach (FilterSetting f in _filter_settings)
+            {
+                total_exposing_time += f.DisplayTime * f.NumExposures;
+            }
+
+            return total_exposing_time;
         }
 
         /// <summary>

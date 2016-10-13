@@ -173,6 +173,8 @@ namespace FilterWheelControl
             AutomatedControlDescription.BorderBrush = Brushes.Transparent;
             ManualControlDescription.BorderBrush = Brushes.Gray;
 
+            // Block any changes to filter settings
+            CurrentSettingsMask.Visibility = System.Windows.Visibility.Visible;
             DisableFilterSettingsChanges();
 
             JumpButton.IsHitTestVisible = true;
@@ -194,6 +196,7 @@ namespace FilterWheelControl
             ManualControlDescription.BorderBrush = Brushes.Transparent;
             AutomatedControlDescription.BorderBrush = Brushes.Gray;
 
+            CurrentSettingsMask.Visibility = System.Windows.Visibility.Collapsed;
             EnableFilterSettingsChanges();
 
             JumpButton.IsHitTestVisible = false;
@@ -255,6 +258,9 @@ namespace FilterWheelControl
         /// </summary>
         private void Add_Edit()
         {
+            // Clear the SeqExposeTime and SeqTransitTime text boxes
+            ClearSeqTimeVals();
+
             // If the button is set to Add:
             if (this.AddButton.Content.ToString() == "Add")
             {
@@ -362,6 +368,7 @@ namespace FilterWheelControl
         {
             if (_delete_allowed)
             {
+                ClearSeqTimeVals();
                 _settings_list.DeleteSelected(this.CurrentSettings.SelectedItems);
                 this.CurrentSettings.Items.Refresh();
             }
@@ -432,11 +439,6 @@ namespace FilterWheelControl
                     f.DisplayTime = f.UserInputTime;
             }
             this.CurrentSettings.Items.Refresh();
-        }
-
-        private void EfficientOrder_Click(object sender, RoutedEventArgs e)
-        {
-            MessageBox.Show("Efficient ordering feature not yet enabled.");
         }
 
         #endregion // Options Boxes
@@ -544,7 +546,6 @@ namespace FilterWheelControl
             InputTime.KeyDown -= InputTime_KeyDown;
             NumFrames.KeyDown -= NumFrames_KeyDown;
             TriggerSlewAdjust.IsHitTestVisible = false;
-            EfficientOrder.IsHitTestVisible = false;
         }
 
         /// <summary>
@@ -561,7 +562,6 @@ namespace FilterWheelControl
             InputTime.KeyDown += InputTime_KeyDown;
             NumFrames.KeyDown += NumFrames_KeyDown;
             TriggerSlewAdjust.IsHitTestVisible = true;
-            EfficientOrder.IsHitTestVisible = false; // change to true once enabled
         }
 
         #endregion // Enable/Disable Changes
@@ -1051,6 +1051,34 @@ namespace FilterWheelControl
         {
             string message = _wi.PingConnection() == 0 ? "The connection seems good." : "A connection was not made.  Please check the connection.";
             MessageBox.Show(message, "Ping Status");
+        }
+
+        /// <summary>
+        /// Calculates the sequency cycle time and transition time values from the current settings list.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        public void TimeCalc_Click(object sender, RoutedEventArgs e)
+        {
+            UpdateSeqTimeVals();
+        }
+
+        /// <summary>
+        /// Updates the SeqExposeTime and SeqTransitTime text boxes on the instrument panel to reflect the corresponding values.
+        /// </summary>
+        private void UpdateSeqTimeVals()
+        {
+            SeqExposeTime.Text = Convert.ToString(_settings_list.CalculateExposedTime()) + " s";
+            SeqTransitTime.Text = Convert.ToString(_settings_list.CalculateTransitionTime()) + " s";
+        }
+
+        /// <summary>
+        /// Removes the text from the SeqExposeTime and SeqTransitTime text boxes.
+        /// </summary>
+        private void ClearSeqTimeVals()
+        {
+            SeqExposeTime.Text = "";
+            SeqTransitTime.Text = "";
         }
 
         #endregion Instrument Panel

@@ -12,6 +12,7 @@
                     <ContextMenu>
                         <MenuItem Header="Edit" Click="EditMenuItem_Click"/>
                         <MenuItem Header="Delete" Click="DeleteMenuItem_Click"/>
+                        <MenuItem Header="Calculate Sequence Times" Click="TimeCalc_Click"/>
                     </ContextMenu>
                 </ListView.ContextMenu>
                 <ListView.View>
@@ -57,8 +58,7 @@
             <ComboBox x:Name="JumpSelectionBox" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Margin="138,0,0,0" ToolTip="Select a filter."/>
         </Grid>
         <Grid Margin="330,105,45,562">
-            <CheckBox x:Name="TriggerSlewAdjust" Content="Adjust exposure times for trigger" HorizontalAlignment="Left" Margin="226,8,0,0" VerticalAlignment="Top" Click="TriggerSlewAdjust_Click" IsChecked="False" ToolTip="Ensure all exposure times end at least 2 milliseconds before a trigger."/>
-            <CheckBox x:Name="EfficientOrder" Content="Order filters to reduce down time" HorizontalAlignment="Left" Margin="0,8,0,0" VerticalAlignment="Top" Click="EfficientOrder_Click" ToolTip="Order the filter settings to minimize filter wheel rotation time."/>
+            <CheckBox x:Name="TriggerSlewAdjust" Content="Adjust exposure times for trigger" HorizontalAlignment="Left" Margin="10,7,0,0" VerticalAlignment="Top" Click="TriggerSlewAdjust_Click" IsChecked="False" ToolTip="Ensure all exposure times end at least 5 milliseconds before a trigger."/>
         </Grid>
         <Separator HorizontalAlignment="Left" Height="12" Margin="330,88,0,0" VerticalAlignment="Top" Width="425"/>
         <Grid Margin="330,140,45,540">
@@ -106,27 +106,35 @@
             <TextBlock x:Name="PingStatusBox" HorizontalAlignment="Left" Margin="0,10,0,0" TextWrapping="Wrap" Text="" TextAlignment="Center" VerticalAlignment="Top" Height="35" Width="181" ToolTip="Please Ping to Update"/>
         </Grid>
         <Grid Margin="486,409,45,10">
-            <Rectangle HorizontalAlignment="Left" Height="281" Stroke="Black" VerticalAlignment="Top" Width="269"/>
+            <Rectangle HorizontalAlignment="Left" Height="62" Stroke="Black" VerticalAlignment="Top" Width="269" Margin="0,209,0,0"/>
+            <Rectangle HorizontalAlignment="Left" Height="204" Stroke="Black" VerticalAlignment="Top" Width="269"/>
             <Label Content="Current:" HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top"/>
             <Label Content="Previous:" HorizontalAlignment="Left" Margin="10,41,0,0" VerticalAlignment="Top"/>
             <TextBlock x:Name="CurrentStatus" HorizontalAlignment="Left" Margin="72,15,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="187" ToolTip="The current filter position."/>
             <TextBlock x:Name="PreviousStatus" HorizontalAlignment="Left" Margin="72,46,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="187" ToolTip="The previous filter position."/>
-            <Grid Margin="10,98,10,95">
-                <Label Content="Sequence Cycle Time:" HorizontalAlignment="Left" VerticalAlignment="Top"/>
-                <Label Content="Sequence Transition Time:" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top"/>
-                <Label Content="Num Cycles Completed:" HorizontalAlignment="Left" Margin="0,62,0,0" VerticalAlignment="Top"/>
-                <TextBlock x:Name="SeqCycleTime" HorizontalAlignment="Left" Margin="129,5,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120" ToolTip="The previous frame's exposure start time."/>
-                <TextBlock x:Name="SeqTransitTime" HorizontalAlignment="Left" Margin="154,36,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="95" ToolTip="The previous frame's exposure end time."/>
-                <TextBlock x:Name="NumCyclesCompleted" HorizontalAlignment="Left" Margin="142,67,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="107" ToolTip="The previous frame's exposure duration."/>
+            <Label Content="Cycles Completed:" HorizontalAlignment="Left" Margin="10,72,0,0" VerticalAlignment="Top"/>
+            <TextBlock x:Name="NumCyclesCompleted" HorizontalAlignment="Left" Margin="117,78,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="107" ToolTip="The number of filter sequences completed."/>
+            <Grid Margin="10,212,10,10">
+                <Label Content="Sequence Exposed Time:" HorizontalAlignment="Left" VerticalAlignment="Top" ToolTip="The duration of CCD exposure in one cycle."/>
+                <Label Content="Sequence Transition Time:" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top" ToolTip="The duration of transitions in one cycle."/>
+                <TextBlock x:Name="SeqExposeTime" HorizontalAlignment="Left" Margin="154,5,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="95" ToolTip="The duration of CCD exposure in one cycle."/>
+                <TextBlock x:Name="SeqTransitTime" HorizontalAlignment="Left" Margin="154,36,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="95" ToolTip="The duration of transitions in one cycle."/>
             </Grid>
-            <Grid Margin="10,219,8,5">
+            <Grid Margin="10,132,8,92">
                 <Label Content="Run Start Time:" HorizontalAlignment="Left" VerticalAlignment="Top"/>
                 <Label Content="Elapsed Run Time:" HorizontalAlignment="Left" Margin="0,31,0,0" VerticalAlignment="Top"/>
-                <TextBlock x:Name="RunStartTime" HorizontalAlignment="Left" Margin="96,6,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="153" ToolTip="The time the run started, in UTC time."/>
-                <TextBlock x:Name="ElapsedRunTime" HorizontalAlignment="Left" Margin="108,36,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="143" ToolTip="The elapsed run time at the end of the previous exposure."/>
+                <TextBlock x:Name="RunStartTime" HorizontalAlignment="Left" Margin="96,6,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="153" ToolTip="The time the run started."/>
+                <TextBlock x:Name="ElapsedRunTime" HorizontalAlignment="Left" Margin="108,36,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="143" ToolTip="The elapsed run time."/>
             </Grid>
-            <Separator HorizontalAlignment="Left" Height="24" Margin="10,191,0,0" VerticalAlignment="Top" Width="249"/>
-            <Separator HorizontalAlignment="Left" Height="24" Margin="12,67,0,0" VerticalAlignment="Top" Width="249"/>
+            <Separator HorizontalAlignment="Left" Height="24" Margin="10,103,0,0" VerticalAlignment="Top" Width="249"/>
         </Grid>
+        <Rectangle x:Name="CurrentSettingsMask" HorizontalAlignment="Left" Height="298" Margin="10,57,0,0" Stroke="Black" VerticalAlignment="Top" Width="250" Opacity="0.75" Visibility="Collapsed">
+            <Rectangle.Fill>
+                <LinearGradientBrush EndPoint="0.5,1" MappingMode="RelativeToBoundingBox" StartPoint="0.5,0">
+                    <GradientStop Color="Black"/>
+                    <GradientStop Color="#FFB9B9B9" Offset="1"/>
+                </LinearGradientBrush>
+            </Rectangle.Fill>
+        </Rectangle>
     </Grid>
 </UserControl>

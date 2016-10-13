@@ -563,16 +563,16 @@ namespace FilterWheelControl
         /// <returns>The time, in seconds, between the two provided filters.</returns>
         public static double TimeBetweenFilters(string f1, string f2)
         {
-            int stop = _LOADED_FILTERS.Count - 1;
+            int stop = _LOADED_FILTERS.Count;
 
             int pos1 = 0;
-            while((_LOADED_FILTERS[pos1] != f1 && _LOADED_FILTERS[pos1] != f2) && pos1 <= stop)
+            while((_LOADED_FILTERS[pos1] != f1 && _LOADED_FILTERS[pos1] != f2) && pos1 < stop)
             {
                 pos1++;
             }
 
             int pos2 = pos1 + 1;
-            while ((_LOADED_FILTERS[pos2] != f1 && _LOADED_FILTERS[pos2] != f2) && pos2 <= stop)
+            while ((_LOADED_FILTERS[pos2] != f1 && _LOADED_FILTERS[pos2] != f2) && pos2 < stop)
             {
                 pos2++;
             }
