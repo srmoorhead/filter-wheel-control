@@ -45,6 +45,7 @@ namespace FilterWheelControl
         public CurrentSettingsList(WheelInterface wi)
         {
             this._filter_settings = new ObservableCollection<FilterSetting>();
+            
             this._current_settings_lock = new object();
             this._wheel_interface = wi;
         }
@@ -140,7 +141,7 @@ namespace FilterWheelControl
                         NumExposures = 1,
                         OrderLocation = -1
                     };
-                    MessageBox.Show("Display time: " + transit.DisplayTime);
+                    
                     last.Next = transit;
                     transit.Next = first;
                 }
@@ -195,6 +196,29 @@ namespace FilterWheelControl
             }
 
             return total_exposing_time;
+        }
+
+        /// <summary>
+        /// Calculates the number of frames, including transition frames, per sequence.  Includes the n-0 transition.
+        /// </summary>
+        /// <returns>The number of frames, including transitions, per sequence.</returns>
+        public int FramesPerCycle()
+        {
+            // Start with the initial number of frames
+            int frames = _filter_settings.Count;
+
+            // Add all transitions
+            for (int i = 1; i < _filter_settings.Count; i++)
+            {
+                if (_filter_settings[i].FilterType != _filter_settings[i - 1].FilterType)
+                    frames++;
+            }
+
+            // Add the n-0 transition if necessary
+            if (_filter_settings[_filter_settings.Count - 1].FilterType != _filter_settings[0].FilterType)
+                frames++;
+
+            return frames;
         }
 
         /// <summary>

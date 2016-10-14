@@ -14,6 +14,7 @@ using System.Windows.Shapes;
 using WPF.JoshSmith.ServiceProviders.UI; // for ListView DragDrop Manager
 using PrincetonInstruments.LightField.AddIns; // for all LightField interactions
 using System.Collections.ObjectModel; // for Observable Collection
+using System.Collections.Specialized;
 using System.Threading;
 
 using Filters;
@@ -116,8 +117,12 @@ namespace FilterWheelControl
             _exp.ImageDataSetReceived += _exp_ImageDataSetReceived;
             EnterManualControl();
 
-            // Set up other interface properties
+            // Set up the elapsed run timer
             SetUpTimer();
+
+            // Hook up the CollectionChanged event from the _settings_list to the ClearSeqTimeVals handler to
+            // clear the SeqExpTime and SeqTransitTime values from the instrument panel when the list changes
+            _settings_list.GetSettingsCollection().CollectionChanged += CollectionChangedHandler;
         }
 
         /// <summary>
@@ -257,10 +262,7 @@ namespace FilterWheelControl
         /// Determines whether to call Add() or Edit() based on current system settings, then calls the respective function
         /// </summary>
         private void Add_Edit()
-        {
-            // Clear the SeqExposeTime and SeqTransitTime text boxes
-            ClearSeqTimeVals();
-
+        {   
             // If the button is set to Add:
             if (this.AddButton.Content.ToString() == "Add")
             {
@@ -271,6 +273,9 @@ namespace FilterWheelControl
             // Otherwise we are editing:
             else
             {
+                // Remove the current sequence time values because they have changed
+                ClearSeqTimeVals();
+                
                 // Try to edit.  If edit doesn't work, return and let the user change values
                 if (!_settings_list.Edit((FilterSetting)this.CurrentSettings.SelectedItem, this.FilterSelectionBox.SelectionBoxItem, this.InputTime.Text, this.NumFrames.Text, (bool)TriggerSlewAdjust.IsChecked))
                     return;
@@ -368,7 +373,6 @@ namespace FilterWheelControl
         {
             if (_delete_allowed)
             {
-                ClearSeqTimeVals();
                 _settings_list.DeleteSelected(this.CurrentSettings.SelectedItems);
                 this.CurrentSettings.Items.Refresh();
             }
@@ -787,8 +791,6 @@ namespace FilterWheelControl
         {
             // Give LF a little time to get into the next exposure (This is assuming we're only taking 1 exp/s maximum).
             Thread.Sleep(500);
-            
-            // Start updating values
 
             // If the frame currently being exposed is the final frame in this filter setting, move to the next one.
             // Else, just update the iterator.
@@ -818,6 +820,9 @@ namespace FilterWheelControl
         /// </summary>
         private void _exp_ImageDataSetReceived_Automated() 
         {
+            // Update the cycles completed count
+            
+            
             if (_rotate)
             {
                 // Tell the filter wheel to start rotating
@@ -1072,10 +1077,22 @@ namespace FilterWheelControl
             SeqTransitTime.Text = Convert.ToString(_settings_list.CalculateTransitionTime()) + " s";
         }
 
+
+        /// <summary>
+        /// Handles the CollectionChanged event from the Observable Collection _settings_list.
+        /// Calls ClearSeqTimeVals();
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void CollectionChangedHandler(object sender, NotifyCollectionChangedEventArgs e)
+        {
+            ClearSeqTimeVals();
+        }
+
         /// <summary>
         /// Removes the text from the SeqExposeTime and SeqTransitTime text boxes.
         /// </summary>
-        private void ClearSeqTimeVals()
+        public void ClearSeqTimeVals()
         {
             SeqExposeTime.Text = "";
             SeqTransitTime.Text = "";
