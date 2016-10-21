@@ -58,7 +58,7 @@
             <ComboBox x:Name="JumpSelectionBox" HorizontalAlignment="Left" VerticalAlignment="Top" Width="75" Margin="138,0,0,0" ToolTip="Select a filter."/>
         </Grid>
         <Grid Margin="330,105,45,562">
-            <CheckBox x:Name="TriggerSlewAdjust" Content="Adjust exposure times for trigger" HorizontalAlignment="Left" Margin="10,7,0,0" VerticalAlignment="Top" Click="TriggerSlewAdjust_Click" IsChecked="False" ToolTip="Ensure all exposure times end at least 5 milliseconds before a trigger."/>
+            <CheckBox x:Name="TriggerSlewAdjust" Content="Adjust exposure times for trigger" HorizontalAlignment="Left" Margin="0,7,0,0" VerticalAlignment="Top" Click="TriggerSlewAdjust_Click" IsChecked="False" ToolTip="Ensure all exposure times end at least 5 milliseconds before a trigger."/>
         </Grid>
         <Separator HorizontalAlignment="Left" Height="12" Margin="330,88,0,0" VerticalAlignment="Top" Width="425"/>
         <Grid Margin="330,140,45,540">

@@ -205,14 +205,18 @@ namespace FilterWheelControl
         public int FramesPerCycle()
         {
             // Start with the initial number of frames
-            int frames = _filter_settings.Count;
+            int frames = 0;
 
             // Add all transitions
             for (int i = 1; i < _filter_settings.Count; i++)
             {
+                frames += _filter_settings[i].NumExposures;
                 if (_filter_settings[i].FilterType != _filter_settings[i - 1].FilterType)
                     frames++;
             }
+
+            // Add the zero frame
+            frames += _filter_settings[0].NumExposures;
 
             // Add the n-0 transition if necessary
             if (_filter_settings[_filter_settings.Count - 1].FilterType != _filter_settings[0].FilterType)

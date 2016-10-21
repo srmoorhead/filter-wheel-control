@@ -66,6 +66,8 @@ namespace FilterWheelControl
         private readonly object _fw_rotation_lock;
         private volatile bool _on_manual;
         private volatile bool _rotate;
+        private volatile int _frames_acquired;
+        private volatile int _frames_per_cycle;
 
         #endregion // Instance Variables
 
@@ -774,6 +776,11 @@ namespace FilterWheelControl
                     Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus(curStat)));
                 }
 
+                // Set the cycles complete value to 0
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdateFramesPerCycle()));
+                _frames_acquired = 0;
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => NumCyclesCompleted.Text = Convert.ToString(_frames_acquired)));
+
                 // Start the elapsed time clock
                 Application.Current.Dispatcher.BeginInvoke(new Action(() => StartElapsedTimeClock()));
                 
@@ -821,7 +828,8 @@ namespace FilterWheelControl
         private void _exp_ImageDataSetReceived_Automated() 
         {
             // Update the cycles completed count
-            
+            _frames_acquired++;
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => NumCyclesCompleted.Text = Convert.ToString(_frames_acquired / _frames_per_cycle)));
             
             if (_rotate)
             {
@@ -852,6 +860,14 @@ namespace FilterWheelControl
             this.ElapsedRunTime.Text = "00:00:00";
             _elapsedTimeClock.Tick += elapsedTimeClock_Tick;
             _elapsedTimeClock.Start();
+        }
+
+        /// <summary>
+        /// Calls the FramesPerCycle method on the _settings_list to update the _frames_per_cycle instance variable used to calculate progress
+        /// </summary>
+        private void UpdateFramesPerCycle()
+        {
+            _frames_per_cycle = _settings_list.FramesPerCycle();
         }
 
         /// <summary>

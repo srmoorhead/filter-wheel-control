@@ -51,7 +51,7 @@ namespace FilterWheelControl
         private System.Windows.Threading.DispatcherTimer _timeout_timer;
         private volatile bool _is_free;
         private volatile string _current_filter;
-        private volatile bool _connected;
+        public volatile bool _connected;
 
 
         #endregion // Instance Variables 
@@ -599,6 +599,12 @@ namespace FilterWheelControl
         }
 
         #endregion // Accessors
+
+        #region Modifiers
+
+
+
+        #endregion // Modifiers
 
     }
 }
