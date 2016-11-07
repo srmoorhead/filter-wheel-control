@@ -2,7 +2,7 @@
 The files for the Filter Wheel Control add-in in LightField.
 
 **********
-NOTE:  The main algorithm being implemented in this application to handle the filter wheel rotation and data acquisition has changed dramatically from the first iteration of this program.  Please see previous commits, including one where we thought the project had to be scrapped, for further information on the early versions.  The project is still under development and will be changing on a weekly basis until complete (hopefully in a month or so).
+NOTE:  The project is still under development and will be changing on a (nearly) weekly basis until complete.
 **********
 
 The Filter Wheel Control project is an add-in for the software LightField (by Princeton Instruments).  It hooks up to the Run and Acquire functionality of LightField and provides custom event handling that allows for a sequence of filters to be iterated through while observing.  The program alters expsoure times in real time to change the behavior of hardware componenets to account for the rotation of a filter wheel, provides a system for manual control of the filter wheel without these timing alterations, offers timing feedback to the observer, displays thumbnail images of the captured frames, and offers a visual representation of the filter wheel in its present state.  It is an interfacing system between the observer, the camera, the timing unit, and the filter wheel.
