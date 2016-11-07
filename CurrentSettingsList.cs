@@ -25,15 +25,16 @@ namespace FilterWheelControl
     {
         #region Static Variables
 
+        // The time subtracted from all integer-second exposure times, in seconds, when the Adjust Exposure Times for Trigger box is selected
         private static readonly double TRIGGER_SLEW_CORRECTION = 0.005; // seconds
 
         #endregion // Static Variables
 
         #region Instance Variables
 
-        private ObservableCollection<FilterSetting> _filter_settings;
-        private readonly object _current_settings_lock;
-        private WheelInterface _wheel_interface;
+        private ObservableCollection<FilterSetting> _filter_settings; // The structure holding the list of filter settings.
+        private readonly object _current_settings_lock; // The lock for adding, editing, and deleting from the list, as well as retrieving.
+        private WheelInterface _wheel_interface; // The wheel interface object associated with this settings list.
 
         #endregion // Instance Variables
 
@@ -72,7 +73,8 @@ namespace FilterWheelControl
         public ObservableCollection<FilterSetting> GetSettingsCollection() { return _filter_settings; }
 
         /// <summary>
-        /// Build the file contents of a filter settings file
+        /// Build the file contents of a filter settings file.
+        /// Format is:  FilterType\tUserInputTime\tNumExposures\r\n
         /// </summary>
         /// <returns>A string holding the contents of the file</returns>
         public string GenerateFileContent()
@@ -91,9 +93,9 @@ namespace FilterWheelControl
    
         
         /// <summary>
-        /// Retrieves all the capture settings.
+        /// Connects all the Next properties of the FilterSettings to the next filter, and inserts transition frames when necessary.
         /// </summary>
-        /// <returns>A Tuple holding the first FilterSetting and the number of frames in a sequence (not including transitions)</returns>
+        /// <returns>The first filter setting in the sequence.</returns>
         public FilterSetting GetCaptureSettings() 
         {
             lock (_current_settings_lock)
@@ -104,6 +106,7 @@ namespace FilterWheelControl
                     FilterSetting cur = _filter_settings[i - 1];
                     FilterSetting next = _filter_settings[i];
 
+                    // If the current filter is not the same as the next filter, we need to insert a transition frame
                     if (cur.FilterType != next.FilterType)
                     {
 
@@ -125,10 +128,11 @@ namespace FilterWheelControl
                     }
                 }
 
-                // Update the Next value for filter n (back to 1).
+                // Update the Next value for filter n (back to 0).
                 FilterSetting last = _filter_settings[_filter_settings.Count - 1];
                 FilterSetting first = _filter_settings[0];
 
+                // If the n to 0 transition requires rotation, add the transition frame.
                 if (last.FilterType != first.FilterType)
                 {
 
@@ -152,6 +156,7 @@ namespace FilterWheelControl
                 
             }
 
+            // Return the first filter setting.
             return _filter_settings[0];
         }
 
@@ -248,7 +253,7 @@ namespace FilterWheelControl
         /// <returns>true if the object was added, false otherwise</returns>
         public bool Add(object filterType, string time, string frames, bool slewAdjust)
         {
-            // Calculate slew adjusted time
+            // If the input time is valid, calculate slew adjusted time and store as slewTime
             double inputTime;
             double slewTime;
             if (ValidInputTime(time))
@@ -256,19 +261,21 @@ namespace FilterWheelControl
                 inputTime = Convert.ToDouble(time);
                 if ((inputTime % 1 == 0) && (inputTime > 0))
                     slewTime = inputTime - TRIGGER_SLEW_CORRECTION;
-                else if ((inputTime % 1 > .998) && (inputTime % 1 < 1))
+                else if ((inputTime % 1 > (1 - TRIGGER_SLEW_CORRECTION)) && (inputTime % 1 < 1))
                     slewTime = inputTime + (1 - (inputTime % 1)) - TRIGGER_SLEW_CORRECTION;
                 else
                     slewTime = inputTime;
             }
             else
-                return false;
+                return false; // if the input time is not valid
 
-            // Validate other inputs and add filter
+            // If the number of frames and the filter type is valid, create a new filter setting with the given parameters
             if (ValidNumFrames(frames) && ValidFilter(filterType))
             {
+                // Lock the list for adding
                 lock (_current_settings_lock)
                 {
+                    // Build the new filter setting and add it to the current list
                     int newIndex = _filter_settings.Count + 1;
                     _filter_settings.Add(new FilterSetting
                     {
@@ -281,13 +288,13 @@ namespace FilterWheelControl
                     });
                 }
 
-                return true;
+                return true; // if add is successful
             }
-            return false;
+            return false; // if num frames and filter type are invalid
         }
 
         /// <summary>
-        /// Edits a filter with the specified settings in the ObservableCollection _FILTER_SETTINGS
+        /// Edits a given filter with the specified settings in the ObservableCollection _FILTER_SETTINGS
         /// </summary>
         /// <param name="toBeChanged">The object in _FILTER_SETTINGS to be changed </param>
         /// <param name="filterType">The new type of the filter</param>
@@ -297,7 +304,7 @@ namespace FilterWheelControl
         /// <returns>true if the edit occurred, false otherwise</returns>
         public bool Edit(FilterSetting toBeChanged, object filterType, string time, string frames, bool slewAdjust)
         {
-            // Calculate slew adjusted time, if necessary
+            // If the input time is valid, calculate slew adjusted time
             double inputTime;
             double slewTime;
             if (ValidInputTime(time))
@@ -309,13 +316,15 @@ namespace FilterWheelControl
                     slewTime = inputTime;
             }
             else
-                return false;
+                return false; // if the input time is invalid
 
-            // Validate other inputs and edit filter
+            // If num frames and filter type are valid, change the values in this filter setting
             if (ValidNumFrames(frames) && ValidFilter(filterType))
             {
+                // Lock the list to perform an edit
                 lock (_current_settings_lock)
                 {
+                    // Update the values in the filter setting
                     toBeChanged.FilterType = filterType.ToString();
                     toBeChanged.DisplayTime = slewAdjust ? slewTime : inputTime;
                     toBeChanged.UserInputTime = inputTime;
@@ -323,10 +332,10 @@ namespace FilterWheelControl
                     toBeChanged.NumExposures = Convert.ToInt16(frames);
                 }
 
-                return true;
+                return true; // if the edit occurred
             }
 
-            return false;
+            return false; // if the frames or filter type were invalid
         }
 
         /// <summary>
@@ -335,14 +344,17 @@ namespace FilterWheelControl
         /// <param name="selected">The selected items to delete</param>
         public void DeleteSelected(System.Collections.IList selected)
         {
+            // Lock on the current settings list to delete
             lock (_current_settings_lock)
             {
                 int numSelected = selected.Count;
                 for (int i = 0; i < numSelected; i++)
                 {
+                    // Remove from the front of the list to avoid indexing errors
                     _filter_settings.Remove(((FilterSetting)selected[0]));
                 }
 
+                // Update the index values of each filter setting to reflect the new list
                 UpdateLocVals();
             }
         }
@@ -352,6 +364,7 @@ namespace FilterWheelControl
         /// </summary>
         private void UpdateLocVals()
         {
+            // For each filter setting, update the OrderLocation to be the index of the setting + 1.
             for (int i = 0; i < _filter_settings.Count; i++)
             {
                 _filter_settings[i].OrderLocation = i + 1;
@@ -362,6 +375,12 @@ namespace FilterWheelControl
 
         /// <summary>
         /// Checks if the entered exposure time in the ExposureTime textbox is valid.
+        /// Valid includes:
+        /// - The time can be converted to a double.
+        /// - The time is greater than or equal to 0.
+        /// - The input is not NaN
+        /// 
+        /// If any of these conditions are not met, the user will be informed via a MessageBox.
         /// </summary>
         /// <param name="input">The text entered in the InputTime textbox</param>
         /// <returns>true if the entered value is a valid time, false otherwise</returns>
@@ -392,6 +411,12 @@ namespace FilterWheelControl
 
         /// <summary>
         /// Checks if the entered number of frames in the NumFrames textbox is valid.
+        /// Valid includes:
+        /// - The input can be converted to a 16 bit integer
+        /// - The input is greater than 0
+        /// - The input is not NaN
+        /// 
+        /// The user is informed if any of the above conditions are not met.
         /// </summary>
         /// <param name="input">The text entered in the NumFrames textbox</param>
         /// <returns>true if the entered value is a valid number, false otherwise</returns>
@@ -428,6 +453,7 @@ namespace FilterWheelControl
         private static bool ValidFilter(object f)
         {
             // Ensure user selected a filter
+            // If the provided object is null or the empty string, the user has not selected a filter.
             if (f == null || f.ToString() == "")
             {
                 MessageBox.Show("You must select a filter.\nPlease ensure you have selected a filter from the drop down menu.", "Doh!");
@@ -468,8 +494,9 @@ namespace FilterWheelControl
                     dlg.DefaultExt = ".dat"; // Default file extension
                     dlg.Filter = "Filter data files (.dat)|*.dat"; // Filter files by extension
 
-                    Nullable<bool> result = dlg.ShowDialog();
+                    Nullable<bool> result = dlg.ShowDialog(); // show the dialog box and store the result
 
+                    // If the result is true, the user provided a location to save the file.
                     if (result == true)
                         filename = dlg.FileName;
                 }
@@ -494,6 +521,7 @@ namespace FilterWheelControl
         /// <summary>
         /// Loads a file containing filter and timing information into the current settings list.
         /// </summary>
+        /// <returns>A string holding the contents of the selected file.</returns>
         public string CurrentSettingsLoad()
         {
             try
