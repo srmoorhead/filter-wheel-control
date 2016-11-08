@@ -16,6 +16,7 @@ using PrincetonInstruments.LightField.AddIns; // for all LightField interactions
 using System.Collections.ObjectModel; // for Observable Collection
 using System.Collections.Specialized;
 using System.Threading;
+using System.IO;
 
 namespace FilterWheelControl
 {
@@ -33,11 +34,13 @@ namespace FilterWheelControl
         private static readonly string NumFramesTextbox_DEFAULT_TEXT = "Num"; // Change this string if you wish to change the text in the NumFrames textbox
         private static string INSTRUMENT_PANEL_DISPLAY_FORMAT = "{0}\t|  {1}\t|  {2} of {3}";  // {0} = filter type, {1} = exposure time, {2} = this iteration, {3} = total iterations
 
-        public static readonly string _TRIGGER_ADJUSTED_STRING = "Trigger Slew Adjusted"; // String to put at the top of the output file when saving CurrentSettings if the Adjust times for trigger option is selected
-        public static readonly string _TRIGGER_UNALTERED_STRING = "Exposure Times Unaltered"; // String to put at the top of the output file when saving CurrentSettings if the Adjust times for trigger option is deselected
+        public static readonly string TRIGGER_ADJUSTED_STRING = "Trigger Slew Adjusted"; // String to put at the top of the output file when saving CurrentSettings if the Adjust times for trigger option is selected
+        public static readonly string TRIGGER_UNALTERED_STRING = "Exposure Times Unaltered"; // String to put at the top of the output file when saving CurrentSettings if the Adjust times for trigger option is deselected
 
-        private static readonly string _CONNECTED = "Last Ping Status:  Connected"; // String to display when the last ping was successful
-        private static readonly string _DISCONNECTED = "Last Ping Status: Disconnected"; // String to display when the last ping was unsuccessful
+        private static readonly string CONNECTED = "Last Ping Status:  Connected"; // String to display when the last ping was successful
+        private static readonly string DISCONNECTED = "Last Ping Status: Disconnected"; // String to display when the last ping was unsuccessful
+
+        private static readonly string LOG_START_TEXT = "Filter Wheel Control Session Log\r\n***********************************\r\n"; // text at the start of every log file
 
         #endregion // Static Variables
 
@@ -47,25 +50,27 @@ namespace FilterWheelControl
         private IExperiment _exp;
 
         // Instance variables for the instrument panel display items
-        private List<TextBlock> _fw_inst_labels; // holds the labels that make up the filter wheel instrument on the instrument panel, 0 is the current filter, moving clockwise
-        private readonly object _fw_inst_lock; // Lock for the filter wheel instrument panel display to prevent concurrent access
-        private System.Windows.Threading.DispatcherTimer _elapsedTimeClock; // Timer for the elapsed time value on the instrument panel
-        private DateTime _runStart; // The time the runs started
+        private List<TextBlock> fw_inst_labels; // holds the labels that make up the filter wheel instrument on the instrument panel, 0 is the current filter, moving clockwise
+        private readonly object fw_inst_lock; // Lock for the filter wheel instrument panel display to prevent concurrent access
+        private System.Windows.Threading.DispatcherTimer elapsedTimeClock; // Timer for the elapsed time value on the instrument panel
+        private DateTime runStart; // The time the runs started
         
         // Instance variables for the Current Settings List
-        private bool _delete_allowed; // Bool denoting whether we can delete from the current settings list or not
-        private CurrentSettingsList _settings_list; // The CurrentSettingsList object associated with this interface
+        private bool delete_allowed; // Bool denoting whether we can delete from the current settings list or not
+        private CurrentSettingsList settings_list; // The CurrentSettingsList object associated with this interface
         
         // Instance variables for acquisition
-        private volatile FilterSetting _current_setting; // The setting currently being acquired
-        private volatile string _current_filter; // The filter currently in front of the camera
-        private int _iteration; // The iteration within the current setting (e.g. 3 of 5 frames in r')
-        WheelInterface _wheel_interface; // The wheel interface instance associated with this panel
-        private readonly object _fw_rotation_lock; // Lock for sending commands to the filter wheel
-        private volatile bool _on_manual; // Bool denoting whether or not the system is in Manual Control Mode
-        private volatile bool _rotate; // Bool noting if we need to rotate next, or not.
-        private volatile int _frames_acquired; // The number of frames acquired since Run/Acquire was last clicked
-        private volatile int _frames_per_cycle; // The number of frames per one fully cycle of filter settings
+        private volatile FilterSetting current_setting; // The setting currently being acquired
+        private volatile string current_filter; // The filter currently in front of the camera
+        private int iteration; // The iteration within the current setting (e.g. 3 of 5 frames in r')
+        WheelInterface wheel_interface; // The wheel interface instance associated with this panel
+        private readonly object fw_rotation_lock; // Lock for sending commands to the filter wheel
+        private volatile bool on_manual; // Bool denoting whether or not the system is in Manual Control Mode
+        private volatile bool rotate; // Bool noting if we need to rotate next, or not.
+        private volatile int frames_acquired; // The number of frames acquired since Run/Acquire was last clicked
+        private volatile int frames_per_cycle; // The number of frames per one fully cycle of filter settings
+        private string log_file_location; // The location of the log file
+        private bool logging; // Bool noting if we are logging
 
         #endregion // Instance Variables
 
@@ -83,16 +88,16 @@ namespace FilterWheelControl
 
             // Initialize instance variables
             this._exp = e; // save the experiment
-            this._delete_allowed = true; // set the inital value on _delete_allowed
-            this._fw_inst_lock = new object(); // create the object to lock on for _fw_inst_lock
-            this._fw_rotation_lock = new object(); // create the object to lock on for _fw_rotation_lock
-            this._wheel_interface = new WheelInterface(this); // create the wheel interface
-            this._settings_list = new CurrentSettingsList(_wheel_interface); // create the current settings list
+            this.delete_allowed = true; // set the inital value on _delete_allowed
+            this.fw_inst_lock = new object(); // create the object to lock on for _fw_inst_lock
+            this.fw_rotation_lock = new object(); // create the object to lock on for _fw_rotation_lock
+            this.wheel_interface = new WheelInterface(this); // create the wheel interface
+            this.settings_list = new CurrentSettingsList(wheel_interface); // create the current settings list
             
             // Home the filter wheel if the ping is successful
-            if (_wheel_interface.PingConnection() == 0)
+            if (wheel_interface.PingConnection() == 0)
             {
-                _wheel_interface.Home();
+                wheel_interface.Home();
             }
 
             // Set up the small viewer and capture view functionality in Main View
@@ -105,7 +110,7 @@ namespace FilterWheelControl
 
             // Populate the Filter Selection Box and Jump Selection Box with the available filters
             // Set the initial state of the instrument panel
-            this._fw_inst_labels = new List<TextBlock> { F0, F1, F2, F3, F4, F5, F6, F7 };
+            this.fw_inst_labels = new List<TextBlock> { F0, F1, F2, F3, F4, F5, F6, F7 };
             for (int i = 0; i < WheelInterface._LOADED_FILTERS.Count; i++)
             {
                 FilterSelectionBox.Items.Add(WheelInterface._LOADED_FILTERS[i]);
@@ -122,7 +127,8 @@ namespace FilterWheelControl
             SetUpTimer();
 
             // Hook up the CollectionChanged event from the _settings_list to the ClearSeqTimeVals handler
-            _settings_list.GetSettingsCollection().CollectionChanged += CollectionChangedHandler;
+            settings_list.GetSettingsCollection().CollectionChanged += CollectionChangedHandler;
+            
         }
 
         /// <summary>
@@ -130,8 +136,8 @@ namespace FilterWheelControl
         /// </summary>
         private void SetUpTimer()
         {
-            _elapsedTimeClock = new System.Windows.Threading.DispatcherTimer();
-            _elapsedTimeClock.Interval = new TimeSpan(0, 0, 1); // updates every 1 second
+            elapsedTimeClock = new System.Windows.Threading.DispatcherTimer();
+            elapsedTimeClock.Interval = new TimeSpan(0, 0, 1); // updates every 1 second
         }
 
         /// <summary>
@@ -183,11 +189,20 @@ namespace FilterWheelControl
             CurrentSettingsMask.Visibility = System.Windows.Visibility.Visible;
             DisableFilterSettingsChanges();
 
+            // Change visibility of buttons
             JumpButton.IsHitTestVisible = true;
             JumpSelectionBox.IsHitTestVisible = true;
             CW.IsHitTestVisible = true;
             CCW.IsHitTestVisible = true;
-            _on_manual = true;
+
+            // Set on_manual to true
+            on_manual = true;
+
+            // If logging is enabled, log the change
+            if (logging)
+            {
+                UpdateLog("Manual Control enabled");	 
+            }
         }
 
         /// <summary>
@@ -203,14 +218,24 @@ namespace FilterWheelControl
             ManualControlDescription.BorderBrush = Brushes.Transparent;
             AutomatedControlDescription.BorderBrush = Brushes.Gray;
 
+            // Enable changes to filter settings
             CurrentSettingsMask.Visibility = System.Windows.Visibility.Collapsed;
             EnableFilterSettingsChanges();
 
+            // Change visibility of buttons
             JumpButton.IsHitTestVisible = false;
             JumpSelectionBox.IsHitTestVisible = false;
             CW.IsHitTestVisible = false;
             CCW.IsHitTestVisible = false;
-            _on_manual = false;
+
+            // Set on_manual to false
+            on_manual = false;
+
+            // Update the log if we're logging
+            if (logging)
+            {
+                UpdateLog("Automated Control enabled");
+            }
         }
 
         #endregion // Manual/Automated Control
@@ -221,7 +246,7 @@ namespace FilterWheelControl
         /// Returns the ObservableCollection holding the filter settings
         /// </summary>
         public ObservableCollection<FilterSetting> FilterSettings
-        { get { return _settings_list.GetSettingsCollection(); } }
+        { get { return settings_list.GetSettingsCollection(); } }
 
         /////////////////////////////////////////////////////////////////
         ///
@@ -272,7 +297,7 @@ namespace FilterWheelControl
             if (this.AddButton.Content.ToString() == "Add")
             {
                 // If Add doesn't doesn't work, return and let the user change values
-                if (!_settings_list.Add(this.FilterSelectionBox.SelectionBoxItem, this.InputTime.Text, this.NumFrames.Text, (bool)TriggerSlewAdjust.IsChecked))
+                if (!settings_list.Add(this.FilterSelectionBox.SelectionBoxItem, this.InputTime.Text, this.NumFrames.Text, (bool)TriggerSlewAdjust.IsChecked))
                     return;
             }
             // Otherwise we are editing:
@@ -282,7 +307,7 @@ namespace FilterWheelControl
                 ClearSeqTimeVals();
                 
                 // Try to edit.  If edit doesn't work, return and let the user change values
-                if (!_settings_list.Edit((FilterSetting)this.CurrentSettings.SelectedItem, this.FilterSelectionBox.SelectionBoxItem, this.InputTime.Text, this.NumFrames.Text, (bool)TriggerSlewAdjust.IsChecked))
+                if (!settings_list.Edit((FilterSetting)this.CurrentSettings.SelectedItem, this.FilterSelectionBox.SelectionBoxItem, this.InputTime.Text, this.NumFrames.Text, (bool)TriggerSlewAdjust.IsChecked))
                     return;
                 
                 // Refresh CurrentSettings list with updated info
@@ -294,7 +319,7 @@ namespace FilterWheelControl
                 this.AddButton.Content = "Add";
                 this.AddFilterLabel.Content = "Add Filter:";
 
-                _delete_allowed = true;
+                delete_allowed = true;
             }
 
             // Reset input boxes
@@ -376,9 +401,9 @@ namespace FilterWheelControl
         /// </summary>
         private void Delete()
         {
-            if (_delete_allowed)
+            if (delete_allowed)
             {
-                _settings_list.DeleteSelected(this.CurrentSettings.SelectedItems);
+                settings_list.DeleteSelected(this.CurrentSettings.SelectedItems);
                 this.CurrentSettings.Items.Refresh();
             }
         }
@@ -419,7 +444,7 @@ namespace FilterWheelControl
             if (this.CurrentSettings.SelectedItem != null)
             {
                 // Block deletions from the list until the edit has finished
-                _delete_allowed = false;
+                delete_allowed = false;
                 
                 // Change the button text and label to reflect that an edit is occuring
                 this.AddButton.Content = "Save";
@@ -450,13 +475,13 @@ namespace FilterWheelControl
             if ((bool)TriggerSlewAdjust.IsChecked)
             {
                 // We are entering the slew adjusted mode
-                foreach (FilterSetting f in _settings_list.GetSettingsCollection())
+                foreach (FilterSetting f in settings_list.GetSettingsCollection())
                     f.DisplayTime = f.SlewAdjustedTime;
             }
             else
             {
                 // We are exiting slew adjusted mode
-                foreach (FilterSetting f in _settings_list.GetSettingsCollection())
+                foreach (FilterSetting f in settings_list.GetSettingsCollection())
                     f.DisplayTime = f.UserInputTime;
             }
             // Refresh the list to ensure the view updates
@@ -472,7 +497,7 @@ namespace FilterWheelControl
         /// </summary>
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
-            _settings_list.CurrentSettingsSave((bool)TriggerSlewAdjust.IsChecked);
+            settings_list.CurrentSettingsSave((bool)TriggerSlewAdjust.IsChecked);
         }
 
         /// <summary>
@@ -485,7 +510,7 @@ namespace FilterWheelControl
             clearFilterSettings();
             
             // Retrieve the contents from the file to be loaded
-            string loaded = _settings_list.CurrentSettingsLoad();
+            string loaded = settings_list.CurrentSettingsLoad();
 
             // As long as the string has information in it, read it into the list
             if (loaded != null)
@@ -515,12 +540,12 @@ namespace FilterWheelControl
             int i;
 
             // Deterime how to interpret the first line.  If it has trigger information, start reading filter settings on lines[1]
-            if (lines[0] == _TRIGGER_ADJUSTED_STRING)
+            if (lines[0] == TRIGGER_ADJUSTED_STRING)
             {
                 TriggerSlewAdjust.IsChecked = true;
                 i = 1;
             }
-            else if (lines[0] == _TRIGGER_UNALTERED_STRING)
+            else if (lines[0] == TRIGGER_UNALTERED_STRING)
             {
                 TriggerSlewAdjust.IsChecked = false;
                 i = 1;
@@ -544,7 +569,7 @@ namespace FilterWheelControl
                     }
                     else
                     {
-                        _settings_list.Add((object)vals[0], vals[1], vals[2], (bool)TriggerSlewAdjust.IsChecked);
+                        settings_list.Add((object)vals[0], vals[1], vals[2], (bool)TriggerSlewAdjust.IsChecked);
                     }
                 }
                 catch (IndexOutOfRangeException)
@@ -621,7 +646,7 @@ namespace FilterWheelControl
                 if (JumpSelectionBox.SelectedIndex != -1)
                 {
                     string selected = (string)JumpSelectionBox.SelectedValue;
-                    _wheel_interface.RotateToFilter(selected);
+                    wheel_interface.RotateToFilter(selected);
                     JumpSelectionBox.SelectedIndex = -1; // reset box to empty
                 }
                 else
@@ -643,7 +668,7 @@ namespace FilterWheelControl
                         return;
 
                 // If the user is okay with it, rotate the filter wheel Clockwise 1 position
-                _wheel_interface.Clockwise();
+                wheel_interface.Clockwise();
             }
         }
 
@@ -661,7 +686,7 @@ namespace FilterWheelControl
                         return;
 
                 // If the user is okay with it, rotate the filter wheel one position counterclockwise
-                _wheel_interface.CounterClockwise();
+                wheel_interface.CounterClockwise();
             }
         }
 
@@ -688,7 +713,7 @@ namespace FilterWheelControl
         public void _exp_ExperimentCompleted(object sender, ExperimentCompletedEventArgs e)
         {
             // If we're in manual control mode, route the ExperimentCompleted event to the manual control hander.  Otherwise, route the event to the automated control handler.
-            if (_on_manual)
+            if (on_manual)
             {
                 _exp_ExperimentCompleted_ManualControl();
             }
@@ -706,7 +731,7 @@ namespace FilterWheelControl
         public void _exp_ExperimentStarted(object sender, ExperimentStartedEventArgs e)
         {
             // If we're in manual control mode, route the ExperimentStarted event to the manual control hander.  Otherwise, route the event to the automated control handler.
-            if (_on_manual)
+            if (on_manual)
             {
                 _exp_ExperimentStarted_ManualControl();
             }
@@ -724,7 +749,7 @@ namespace FilterWheelControl
         public void _exp_ImageDataSetReceived(object sender, ImageDataSetReceivedEventArgs e)
         {
             // If we're in manual control mode, route the ImageDataSetReceived event to the manual control hander.  Otherwise, route the event to the automated control handler.
-            if (_on_manual)
+            if (on_manual)
             {
                 _exp_ImageDataSetReceived_ManualControl();
             }
@@ -744,8 +769,8 @@ namespace FilterWheelControl
         private void _exp_ExperimentCompleted_Automated()
         {
             // Stop the elapsed time clock and remove the tick event handler
-            _elapsedTimeClock.Stop();
-            _elapsedTimeClock.Tick -= elapsedTimeClock_Tick;
+            elapsedTimeClock.Stop();
+            elapsedTimeClock.Tick -= elapsedTimeClock_Tick;
 
             // Re-enable filter settings changes and update the current status display
             Application.Current.Dispatcher.BeginInvoke(new Action(EnableFilterSettingsChanges));
@@ -754,7 +779,7 @@ namespace FilterWheelControl
             
             // Re-enable the manual control option and home the filter wheel.
             ManualControl.IsHitTestVisible = true;
-            _wheel_interface.Home();
+            wheel_interface.Home();
         }
 
         /// <summary>
@@ -763,7 +788,7 @@ namespace FilterWheelControl
         private void _exp_ExperimentStarted_Automated()
         {
             // Don't start acquiring if there are no settings in the list.
-            if (_settings_list.GetSettingsCollection().Count == 0)
+            if (settings_list.GetSettingsCollection().Count == 0)
             {
                 MessageBox.Show("Please provide some filter setting to iterate through, or switch to Manual Control.", "No Filter Settings");
                 _exp.Stop();
@@ -773,31 +798,31 @@ namespace FilterWheelControl
                 // Disable changes to the settings list and manual control system and retrieve the first setting
                 ManualControl.IsHitTestVisible = false;
                 Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
-                _current_setting = _settings_list.GetCaptureSettings();
+                current_setting = settings_list.GetCaptureSettings();
 
                 // Save the filter settings for this acquisition session
                 //Application.Current.Dispatcher.BeginInvoke(new Action(() => _settings_list.CurrentSettingsSave((bool)TriggerSlewAdjust.IsChecked, RetrieveFileNameInfo())));
 
                 // Deterime the settings for the first exposure time
                 // If the filter currently in front of the camera is not the filter type for the first exposure, generate a transition frame for the first exposure
-                if (_current_setting.FilterType != _current_filter)
+                if (current_setting.FilterType != current_filter)
                 {
                     // calculate the transition frame to the first filter and set this frame as the _current_setting.
                     // Attach the Next value of the frame to the first frame in the sequence
                     FilterSetting transit = new FilterSetting
                     {
-                        FilterType = _current_setting.FilterType,
-                        DisplayTime = WheelInterface.TimeBetweenFilters(_current_filter, _current_setting.FilterType),
+                        FilterType = current_setting.FilterType,
+                        DisplayTime = WheelInterface.TimeBetweenFilters(current_filter, current_setting.FilterType),
                         UserInputTime = 0,
                         SlewAdjustedTime = 0,
                         NumExposures = 1,
                         OrderLocation = -1
                     };
-                    transit.Next = _current_setting;
-                    _current_setting = transit;
+                    transit.Next = current_setting;
+                    current_setting = transit;
 
                     // Begin rotating the filter wheel to the first filter
-                    _wheel_interface.RotateToFilter(_current_setting.FilterType);
+                    wheel_interface.RotateToFilter(current_setting.FilterType);
 
                     // Update the instrument panel to reflect the rotation
                     Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("Rotating to " + transit.FilterType)));
@@ -805,17 +830,18 @@ namespace FilterWheelControl
                 else
                 {
                     // Update the exposure time to reflect the first exposure
-                    String curStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration, _current_setting.NumExposures);
+                    String curStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, current_setting.FilterType, current_setting.DisplayTime, iteration, current_setting.NumExposures);
                     Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus(curStat)));
                 }
                 // Set the LF Exposure Time value to the exposure time of the first frame and set the iteration num to 1
-                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000);
-                _iteration = 1;
+                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, current_setting.DisplayTime * 1000);
+                iteration = 1;
+                rotate = false;
 
                 // Update frames per cycle value, set the _frames_acquired value to 0, and update the NumCyclesComplete display on the instrument panel
                 Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdateFramesPerCycle()));
-                _frames_acquired = 0;
-                Application.Current.Dispatcher.BeginInvoke(new Action(() => NumCyclesCompleted.Text = Convert.ToString(_frames_acquired)));
+                frames_acquired = 0;
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => NumCyclesCompleted.Text = Convert.ToString(frames_acquired)));
 
                 // Start the elapsed time clock
                 Application.Current.Dispatcher.BeginInvoke(new Action(() => StartElapsedTimeClock()));
@@ -833,36 +859,36 @@ namespace FilterWheelControl
         private void SetNextExpTime()
         {
             // Give LF a little time to get into the next exposure (This is assuming we're only taking 1 exp/s maximum).
-            if (_frames_acquired == 0)
+            if (frames_acquired == 0)
             {
-                Thread.Sleep(500);
+                Thread.Sleep(1000);
             }
             else
             {
-                Thread.Sleep(300);
+                Thread.Sleep(800);
             }
-
+            
             // If the frame currently being exposed is the final frame in this filter setting, move to the next one.
             // Else, just update the iterator.
-            if (_iteration == _current_setting.NumExposures)
+            if (iteration == current_setting.NumExposures)
             {
                 // Move to the next filter setting
-                _current_setting = _current_setting.Next;
-                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, _current_setting.DisplayTime * 1000);
-                _iteration = 1;
+                current_setting = current_setting.Next;
+                _exp.SetValue(CameraSettings.ShutterTimingExposureTime, current_setting.DisplayTime * 1000);
+                iteration = 1;
 
                 // If this next frame is a transition frame (i.e. orderlocation = -1), we must rotate
-                if (_current_setting.OrderLocation == -1)
+                if (current_setting.OrderLocation == -1)
                 {
                     // We must rotate
-                    _rotate = true;
+                    rotate = true;
                 }
             }
             else
             {
                 // We are staying in the same filter setting.  Update the iteration
-                _iteration++;
-                _rotate = false;
+                iteration++;
+                rotate = false;
             }
         }
 
@@ -872,20 +898,20 @@ namespace FilterWheelControl
         private void _exp_ImageDataSetReceived_Automated() 
         {
             // Update the cycles completed count
-            _frames_acquired++;
-            Application.Current.Dispatcher.BeginInvoke(new Action(() => NumCyclesCompleted.Text = Convert.ToString(_frames_acquired / _frames_per_cycle)));
+            frames_acquired++;
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => NumCyclesCompleted.Text = Convert.ToString(frames_acquired / frames_per_cycle)));
             
-            if (_rotate)
+            if (rotate)
             {
                 // Tell the filter wheel to start rotating
-                _wheel_interface.RotateToFilter(_current_setting.FilterType);
-                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("Rotating to " + _current_setting.FilterType))); // "Rotating to f", f in _LOADED_FILTERS
-                _rotate = false;
+                wheel_interface.RotateToFilter(current_setting.FilterType);
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus("Rotating to " + current_setting.FilterType))); // "Rotating to f", f in _LOADED_FILTERS
+                rotate = false;
             }
             else
             {
                 // We are staying in the same filter setting.  Update the instrument panel.
-                String curStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, _current_setting.FilterType, _current_setting.DisplayTime, _iteration, _current_setting.NumExposures);
+                String curStat = String.Format(INSTRUMENT_PANEL_DISPLAY_FORMAT, current_setting.FilterType, current_setting.DisplayTime, iteration, current_setting.NumExposures);
                 Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdatePanelCurrentStatus(curStat)));
             }
 
@@ -899,11 +925,11 @@ namespace FilterWheelControl
         /// </summary>
         private void StartElapsedTimeClock()
         {
-            _runStart = DateTime.Now;
-            this.RunStartTime.Text = _runStart.ToString("HH:mm:ss");
+            runStart = DateTime.Now;
+            this.RunStartTime.Text = runStart.ToString("HH:mm:ss");
             this.ElapsedRunTime.Text = "00:00:00";
-            _elapsedTimeClock.Tick += elapsedTimeClock_Tick;
-            _elapsedTimeClock.Start();
+            elapsedTimeClock.Tick += elapsedTimeClock_Tick;
+            elapsedTimeClock.Start();
         }
 
         /// <summary>
@@ -911,7 +937,7 @@ namespace FilterWheelControl
         /// </summary>
         private void UpdateFramesPerCycle()
         {
-            _frames_per_cycle = _settings_list.FramesPerCycle();
+            frames_per_cycle = settings_list.FramesPerCycle();
         }
 
         /// <summary>
@@ -920,8 +946,8 @@ namespace FilterWheelControl
         private void StopAll()
         {
             _exp.Stop();
-            _elapsedTimeClock.Tick -= elapsedTimeClock_Tick;
-            _wheel_interface.PingConnection();
+            elapsedTimeClock.Tick -= elapsedTimeClock_Tick;
+            wheel_interface.PingConnection();
             MessageBox.Show("Acquisition has been halted.  There has been an error communicating with the filter wheel.\n\nCommon causes include:\n\nBad usb/ethernet connection.\nLoss of power to filter wheel motor.\n", "Wheel Connection Error");
         }
 
@@ -935,6 +961,13 @@ namespace FilterWheelControl
         private void _exp_ExperimentStarted_ManualControl()
         {
             Application.Current.Dispatcher.BeginInvoke(new Action(() => AutomatedControl.IsHitTestVisible = false));
+            frames_acquired = 0;
+            
+            // If we're logging, update the log with this action
+            if (logging)
+            {
+                UpdateLog("Acquisition started");
+            }
         }
 
         /// <summary>
@@ -942,7 +975,15 @@ namespace FilterWheelControl
         /// </summary>
         private void _exp_ImageDataSetReceived_ManualControl()
         {
-            return;
+            frames_acquired++;
+
+            // If we're logging, update the log with this action
+            string exp_time = Convert.ToString(_exp.GetValue(CameraSettings.ShutterTimingExposureTime));
+            string filter = current_filter;
+            if (logging)
+            {
+                UpdateLog("Frame acquired: " + frames_acquired + "\t" + exp_time + "\t" + filter);
+            }
         }
 
         /// <summary>
@@ -951,6 +992,12 @@ namespace FilterWheelControl
         private void _exp_ExperimentCompleted_ManualControl()
         {
             Application.Current.Dispatcher.BeginInvoke(new Action(() => AutomatedControl.IsHitTestVisible = true));
+            
+            // If we're logging, update the log with this action
+            if (logging)
+            {
+                UpdateLog("Acquisition complete");
+            }
         }
 
         #endregion // Manual Event Methods
@@ -1048,6 +1095,125 @@ namespace FilterWheelControl
 
         #endregion // Filename Info
 
+        #region Session Logging
+
+        /// <summary>
+        /// Runs when the session log button is clicked.
+        /// If currently logging, routes the command to disable logging.
+        /// If currently not logging, routes the command to enable logging.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void SessionLogButton_Click(object sender, RoutedEventArgs e)
+        {
+            // If we're currently logging, disable logging.  Otherwise, enable logging.
+            if (logging)
+            {
+                DisableLogging();
+            }
+            else
+            {
+                EnableLogging();
+            }
+        }
+
+        /// <summary>
+        /// Double-checks with the user before proceeding.
+        /// Clears the log file name and sets logging to false.
+        /// 
+        /// Good for the forests.
+        /// </summary>
+        private void DisableLogging()
+        {
+            // Check with the user.
+            MessageBoxResult result = MessageBox.Show("Are you sure you want to disable logging?  No further information on acquired frames will be stored.\n\nHint:  This is a bad idea.", "Really Disable Logging?", MessageBoxButton.YesNo);
+            
+            // If the use wants to really do this
+            if (result == MessageBoxResult.Yes)
+            {
+                log_file_location = "";
+                logging = false;
+
+                SessionLogButton.Background = Brushes.Red; // Sets button background to red.
+                SessionLogButton.Foreground = Brushes.White; // Sets button foreground (text) to white.
+                SessionLogButton.Content = "Set Session Log Location";
+            }
+        }
+
+        /// <summary>
+        /// Enables logging for the current session.
+        /// Allows the user to pick a file location and create a new log file.
+        /// </summary>
+        private void EnableLogging()
+        {
+            // Try to create the file and add the introductory text
+            try
+            {
+                string filename = "";
+
+                // Get date and time for use in filename and file start text
+                string date = GetFormattedDate(DateFormat.dd_Month_yyyy);
+                string time = GetFormattedTime(TimeFormat.hh_mm_ss_24hr);
+
+                // Configure save file dialog box
+                Microsoft.Win32.SaveFileDialog dlg = new Microsoft.Win32.SaveFileDialog();
+                dlg.FileName = "FilterWheelControl Session Log " + date + " " + time; // Default file name
+                dlg.DefaultExt = ".log"; // Default file extension
+                dlg.Filter = "Session log files (.log)|*.log"; // Filter files by extension
+
+                Nullable<bool> result = dlg.ShowDialog(); // show the dialog box and store the result
+
+                // If the result is true, the user provided a location to save the file.
+                if (result == true)
+                    filename = dlg.FileName;
+
+                // Now, if we've got a filename, create the file.
+                if (filename != "")
+                {
+                    // Create the file
+                    FileStream output = File.Create(filename);
+
+                    // Generate the initial file contents and write them
+                    string logStartText = LOG_START_TEXT + "Created on " + date + " " + time + "\r\n***********************************\r\n\r\n";
+                    Byte[] info = new UTF8Encoding(true).GetBytes(logStartText);
+                    output.Write(info, 0, info.Length);
+                    output.Close();
+
+                    // Update the instance variables
+                    log_file_location = filename;
+                    logging = true;
+
+                    // SUCCESS!
+                    // Change the button color to green and the text to show "Logging enabled."
+                    SessionLogButton.Background = Brushes.Green;
+                    SessionLogButton.ClearValue(Button.ForegroundProperty); // resets text color to default
+                    SessionLogButton.Content = "Logging enabled.  Click to disable.";
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("There was an error creating the log file.  See info here:\n\n" + ex.ToString());
+            }
+
+        }
+
+        /// <summary>
+        /// Writes a new line to the log file in the format:
+        /// date    time    message
+        /// </summary>
+        /// <param name="message">The message to write to the log</param>
+        private void UpdateLog(string message)
+        {
+            using (StreamWriter sw = File.AppendText(log_file_location))
+            {
+                string date = GetFormattedDate(DateFormat.dd_Month_yyyy);
+                string time = GetFormattedTime(TimeFormat.hh_mm_ss_24hr);
+                sw.WriteLine(date + "\t" + time + "\t" + message);
+            }
+        }
+
+        #endregion // Session Logging
+
         #region Instrument Panel
 
         /// <summary>
@@ -1057,12 +1223,12 @@ namespace FilterWheelControl
         public void UpdateFWInstrumentOrder(List<string> newOrder)
         {
             // Lock the instrument
-            lock (_fw_inst_lock)
+            lock (fw_inst_lock)
             {
                 // Update the label text to reflect the new filter order
-                _current_filter = newOrder[0];
-                for (int i = 0; i < _fw_inst_labels.Count(); i++)
-                    _fw_inst_labels[i].Text = newOrder[i];
+                current_filter = newOrder[0];
+                for (int i = 0; i < fw_inst_labels.Count(); i++)
+                    fw_inst_labels[i].Text = newOrder[i];
             }
         }
 
@@ -1072,10 +1238,11 @@ namespace FilterWheelControl
         public void UpdateFWInstrumentRotate()
         {
             // Lock the instrument
-            lock (_fw_inst_lock)
+            lock (fw_inst_lock)
             {
                 // Set each label to ... to reflect rotation/unknown position
-                foreach (TextBlock t in _fw_inst_labels)
+                current_filter = "Transitioning";
+                foreach (TextBlock t in fw_inst_labels)
                     t.Text = "...";
             }
         }
@@ -1085,7 +1252,7 @@ namespace FilterWheelControl
         /// </summary>
         public void PingStatusDisconnected()
         {
-            PingStatusBox.Text = _DISCONNECTED;
+            PingStatusBox.Text = DISCONNECTED;
             PingStatusBox.Foreground = Brushes.Red; // Set the text color to red
         }
 
@@ -1094,7 +1261,7 @@ namespace FilterWheelControl
         /// </summary>
         public void PingStatusConnected()
         {
-            PingStatusBox.Text = _CONNECTED;
+            PingStatusBox.Text = CONNECTED;
             PingStatusBox.ClearValue(TextBlock.ForegroundProperty); // Set the text color to default
         }
 
@@ -1115,7 +1282,7 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         private void elapsedTimeClock_Tick(object sender, EventArgs e)
         {
-            this.ElapsedRunTime.Text = (DateTime.Now - _runStart).ToString(@"hh\:mm\:ss");
+            this.ElapsedRunTime.Text = (DateTime.Now - runStart).ToString(@"hh\:mm\:ss");
         }
 
         /// <summary>
@@ -1126,7 +1293,7 @@ namespace FilterWheelControl
         /// <param name="e"></param>
         public void PingButton_Click(object sender, RoutedEventArgs e)
         {
-            string message = _wheel_interface.PingConnection() == 0 ? "The connection seems good." : "A connection was not made.  Please check the connection.";
+            string message = wheel_interface.PingConnection() == 0 ? "The connection seems good." : "A connection was not made.  Please check the connection.";
             MessageBox.Show(message, "Ping Status");
         }
 
@@ -1145,8 +1312,8 @@ namespace FilterWheelControl
         /// </summary>
         private void UpdateSeqTimeVals()
         {
-            SeqExposeTime.Text = Convert.ToString(_settings_list.CalculateExposedTime()) + " s";
-            SeqTransitTime.Text = Convert.ToString(_settings_list.CalculateTransitionTime()) + " s";
+            SeqExposeTime.Text = Convert.ToString(settings_list.CalculateExposedTime()) + " s";
+            SeqTransitTime.Text = Convert.ToString(settings_list.CalculateTransitionTime()) + " s";
         }
 
 
@@ -1179,12 +1346,13 @@ namespace FilterWheelControl
         /// </summary>
         public void ShutDown()
         {
-            _wheel_interface.ShutDown();
+            wheel_interface.ShutDown();
             _exp.ExperimentStarted -= _exp_ExperimentStarted;
             _exp.ExperimentCompleted -= _exp_ExperimentCompleted;
             _exp.ImageDataSetReceived -= _exp_ImageDataSetReceived;
         }
 
         #endregion // ShutDown
+
     }
 }

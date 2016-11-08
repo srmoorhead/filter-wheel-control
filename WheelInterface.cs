@@ -469,7 +469,7 @@ namespace FilterWheelControl
             {
                 // We know where we are.
                 // Convert the wheel position (stored in values[1]) to an int.  
-                //Build an ordered list of filters starting with the current position, and update the instrument panel to show this new ordering.
+                // Build an ordered list of filters starting with the current position, and update the instrument panel to show this new ordering.
                 int cur = Convert.ToInt16(values[1]);
                 Application.Current.Dispatcher.Invoke(new Action(() => _panel.UpdateFWInstrumentOrder(BuildOrderedSet(cur))));
                 

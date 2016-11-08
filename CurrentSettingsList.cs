@@ -479,9 +479,9 @@ namespace FilterWheelControl
 
             // Add the adjusted flag
             if (adjusted)
-                content = ControlPanel._TRIGGER_ADJUSTED_STRING + "\r\n" + content;
+                content = ControlPanel.TRIGGER_ADJUSTED_STRING + "\r\n" + content;
             else
-                content = ControlPanel._TRIGGER_UNALTERED_STRING + "\r\n" + content;
+                content = ControlPanel.TRIGGER_UNALTERED_STRING + "\r\n" + content;
             
             try
             {
