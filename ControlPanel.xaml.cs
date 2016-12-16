@@ -66,11 +66,12 @@ namespace FilterWheelControl
         WheelInterface wheel_interface; // The wheel interface instance associated with this panel
         private readonly object fw_rotation_lock; // Lock for sending commands to the filter wheel
         private volatile bool on_manual; // Bool denoting whether or not the system is in Manual Control Mode
-        private volatile bool rotate; // Bool noting if we need to rotate next, or not.
+        private volatile bool rotate; // Bool noting if we need to rotate next.
         private volatile int frames_acquired; // The number of frames acquired since Run/Acquire was last clicked
         private volatile int frames_per_cycle; // The number of frames per one fully cycle of filter settings
         private string log_file_location; // The location of the log file
         private bool logging; // Bool noting if we are logging
+        private volatile FilterSetting log_setting; // The filter setting to be logged when ImageDataSetReceived is called in automated mode
 
         #endregion // Instance Variables
 
@@ -768,6 +769,12 @@ namespace FilterWheelControl
         /// </summary>
         private void _exp_ExperimentCompleted_Automated()
         {
+            // If we're logging, update the log with this action
+            if (logging)
+            {
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdateLog("Acquisition complete")));
+            }
+            
             // Stop the elapsed time clock and remove the tick event handler
             elapsedTimeClock.Stop();
             elapsedTimeClock.Tick -= elapsedTimeClock_Tick;
@@ -799,6 +806,7 @@ namespace FilterWheelControl
                 ManualControl.IsHitTestVisible = false;
                 Application.Current.Dispatcher.BeginInvoke(new Action(DisableFilterSettingsChanges));
                 current_setting = settings_list.GetCaptureSettings();
+                log_setting = current_setting;
 
                 // Save the filter settings for this acquisition session
                 //Application.Current.Dispatcher.BeginInvoke(new Action(() => _settings_list.CurrentSettingsSave((bool)TriggerSlewAdjust.IsChecked, RetrieveFileNameInfo())));
@@ -842,6 +850,12 @@ namespace FilterWheelControl
                 Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdateFramesPerCycle()));
                 frames_acquired = 0;
                 Application.Current.Dispatcher.BeginInvoke(new Action(() => NumCyclesCompleted.Text = Convert.ToString(frames_acquired)));
+
+                // If we're logging, update the log with this action
+                if (logging)
+                {
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdateLog("Acquisition started")));
+                }
 
                 // Start the elapsed time clock
                 Application.Current.Dispatcher.BeginInvoke(new Action(() => StartElapsedTimeClock()));
@@ -900,7 +914,23 @@ namespace FilterWheelControl
             // Update the cycles completed count
             frames_acquired++;
             Application.Current.Dispatcher.BeginInvoke(new Action(() => NumCyclesCompleted.Text = Convert.ToString(frames_acquired / frames_per_cycle)));
-            
+
+            // If we're logging, update the log with the frame we just captured
+            if (logging)
+            {
+                if (log_setting.OrderLocation == -1)
+                {
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdateLog("Frame acquired: " + frames_acquired + "\t" + log_setting.DisplayTime + "\tRotating to " + log_setting.FilterType)));
+                }
+                else
+                {
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => UpdateLog("Frame acquired: " + frames_acquired + "\t" + log_setting.DisplayTime + "\t" + log_setting.FilterType)));
+                }
+            }
+            // Update the log setting for next time
+            log_setting = current_setting;
+
+            // Set up the system for the frame we are about to capture
             if (rotate)
             {
                 // Tell the filter wheel to start rotating
@@ -978,11 +1008,10 @@ namespace FilterWheelControl
             frames_acquired++;
 
             // If we're logging, update the log with this action
-            string exp_time = Convert.ToString(_exp.GetValue(CameraSettings.ShutterTimingExposureTime));
-            string filter = current_filter;
+            double exp_time = Convert.ToDouble(_exp.GetValue(CameraSettings.ShutterTimingExposureTime)) / 1000.0;
             if (logging)
             {
-                UpdateLog("Frame acquired: " + frames_acquired + "\t" + exp_time + "\t" + filter);
+                UpdateLog("Frame acquired: " + frames_acquired + "\t" + exp_time + "\t" + current_filter);
             }
         }
 
